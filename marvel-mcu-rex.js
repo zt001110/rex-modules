@@ -3,9 +3,9 @@
 
 WidgetMetadata = {
     id: "com.example.rex.marvel-mcu",
-    title: "漫威宇宙电影系列（MCU）",
-    author: "你的名字",
-    description: "按 MCU 系列和时代浏览电影，支持上映时间和评分排序",
+    title: "漫威电影",
+    author: "桃子🍑",
+    description: "漫威电影合集，支持 MCU 系列分类、上映时间和评分排序",
     version: "1.0.2",
     requiredVersion: "0.0.1",
     site: "https://www.themoviedb.org/company/420-marvel-studios",
@@ -13,7 +13,7 @@ WidgetMetadata = {
 
     modules: [
         {
-            title: "漫威宇宙电影",
+            title: "漫威电影",
             functionName: "loadMCU",
             type: "video",
             cacheDuration: 86400,

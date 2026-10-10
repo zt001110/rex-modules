@@ -3,9 +3,9 @@
 
 WidgetMetadata = {
     id: "com.example.rex.marvel-mcu-tv",
-    title: "漫威宇宙电视剧（MCU）",
-    author: "zt001110",
-    description: "按 MCU 电视剧系列和年份浏览，支持上映时间和评分排序",
+    title: "漫威电视剧",
+    author: "桃子🍑",
+    description: "漫威电视剧合集，支持系列分类、首播时间和评分排序",
     version: "1.0.0",
     requiredVersion: "0.0.1",
     site: "https://www.themoviedb.org/company/420-marvel-studios",
@@ -13,7 +13,7 @@ WidgetMetadata = {
 
     modules: [
         {
-            title: "漫威宇宙电视剧",
+            title: "漫威电视剧",
             functionName: "loadMCUTV",
             type: "video",
             cacheDuration: 86400,
