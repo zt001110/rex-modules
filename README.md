@@ -6,12 +6,9 @@
 |---|---|
 | `marvel-mcu-rex.js` | MCU 电影模块，负责分类、排序和 TMDB 刮削。 |
 | `marvel-mcu-tv-rex.js` | MCU 电视剧模块，负责剧集分类、排序和 TMDB 刮削。 |
-| `marvel-mcu-all-rex.js` | 可直接导入的 MCU 综合模块，里面同时有电影和电视剧两个入口。 |
-| `rex-collection.json` | 标准 JSON 格式的 Rex 模块合集清单。 |
-| `rex-collection.js` | 兼容部分 Rex 版本的合集入口，内容与 JSON 清单相同。 |
 | `README.md` | 中文使用说明、发布地址和后续维护方法。 |
 
-当前仓库只保留 MCU 电影、MCU 电视剧、MCU 综合模块和合集清单；通用示例模板已经删除。
+当前仓库只保留 MCU 电影和 MCU 电视剧两个模块；合集由 Rex-Widgets-Hub 生成。
 
 第一份实际模块示例是 `marvel-mcu-rex.js`：它复刻了你截图中的多级选择和排序方式，通过 TMDB 的 Marvel Studios 电影库自动生成电影列表，并提供复仇者联盟、钢铁侠、美国队长等子系列筛选。
 
