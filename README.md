@@ -1,5 +1,15 @@
 # Rex 模块开发起步
 
+## 当前文件说明
+
+| 文件 | 用途 |
+|---|---|
+| `marvel-mcu-rex.js` | 当前唯一启用的 MCU 电影模块，负责分类、排序和 TMDB 刮削。 |
+| `rex-collection.json` | Rex 模块合集清单，后续新增模块时在 `widgets` 中继续添加。 |
+| `README.md` | 中文使用说明、发布地址和后续维护方法。 |
+
+当前仓库只保留 MCU 模块和合集清单；通用示例模板已经删除。
+
 `rex-module-starter.js` 是一个最小的 Rex/ForwardWidget JavaScript 模块骨架。把它复制成自己的文件，替换 `WidgetMetadata` 和三个 `TODO` 区域即可开始。
 
 如果你的目标是维护自己的电影/电视剧收藏，优先从 `rex-curated-library.js` 开始。它把分类和片目写在文件顶部，使用 TMDB ID 交给 Rex 自动补全详情。
