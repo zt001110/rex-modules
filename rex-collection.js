@@ -20,6 +20,15 @@
       "version": "1.0.0",
       "author": "zt001110",
       "url": "https://raw.githubusercontent.com/zt001110/rex-modules/main/marvel-mcu-tv-rex.js"
+    },
+    {
+      "id": "com.example.rex.marvel-mcu-all",
+      "title": "漫威宇宙电影+电视剧（MCU）",
+      "description": "可直接导入的 MCU 综合模块，包含电影和电视剧两个入口",
+      "requiredVersion": "0.0.1",
+      "version": "1.0.0",
+      "author": "zt001110",
+      "url": "https://raw.githubusercontent.com/zt001110/rex-modules/main/marvel-mcu-all-rex.js"
     }
   ]
 }
