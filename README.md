@@ -10,7 +10,7 @@
 
 `rex-collection.json` 是合集清单。以后新增 `mcu-series-rex.js`、`disney-rex.js` 等文件，只需在这个清单的 `widgets` 数组中增加一项。将合集地址导入 Rex 后，Rex 的“刷新”会重新读取清单和模块 URL。
 
-当前发布仓库是 `zt001110/rex-modules`。推荐导入标准 JSON 地址：`https://raw.githubusercontent.com/zt001110/rex-modules/main/rex-collection.json`。模块升级时同时递增对应的 `version`，避免客户端继续使用旧缓存。
+当前发布仓库是 `zt001110/rex-modules`。Rex 推荐导入 GitHub Pages 的标准 JSON 地址：`https://zt001110.github.io/rex-modules/rex-collection.json`。模块升级时同时递增对应的 `version`，避免客户端继续使用旧缓存。
 
 ## 本地校验
 
