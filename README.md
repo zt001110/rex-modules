@@ -25,6 +25,22 @@
 - **红果自定义域名**：`https://hongguo-rex.tli.li`；模块脚本为 `/hongguo.js`，API 参数 `apiBase` 填域名根地址。Cloudflare 添加域名不会自动改写控制面板保存的脚本来源或 Rex 客户端参数。
 - **Worker 源码位置**：当前 `rex-modules` 仓库不含这两个 Worker 的源码或 Wrangler 配置。改个人模块只需更新本仓库；要改 Worker 的 API/部署设置，则在 Cloudflare 的对应 Worker 中单独维护和部署，不能指望模块仓库的加密工作流替它发布。
 
+## 作者控制面板项目的同步与更新监视
+
+- **作者上游项目**：[MakkaPakka518/Rex-Widgets-Hub](https://github.com/MakkaPakka518/Rex-Widgets-Hub)。这是作者的 Rex 模块管理面板项目；本人的 `rex-panel` 是部署在 Cloudflare 上的独立实例。
+- **最近核对记录**：2026-10-28 对照作者仓库 `main` 最新提交 `8b454497`（2026-10-09，登录限流改为内存实现），Cloudflare 当前 `rex-panel` 部署代码与上游 `index.js` 内容一致，差异只有换行格式。因此当前无需为这次更新重复部署。后续应以监视提醒时的上游最新提交和线上版本重新核对，不要把这条记录当成永久最新状态。
+- **自动监视**：Codex 中有一个名为“监视 Rex-Widgets-Hub 作者更新”的每日监视任务，检查作者仓库 `main` 是否出现新提交。没有新提交时不打扰；发现提交后会给出日期、标题和改动摘要，并提醒检查是否需要同步。
+- **监视只负责提醒**：它不会自动拉取代码、修改 `rex-panel`、部署 Worker、改 KV 数据或替换管理员/公共用户设置。收到提醒后仍需先审查上游 diff，再决定是否升级。
+
+收到更新提醒后的处理步骤：
+
+1. 打开提醒中的提交链接，检查 `index.js` 和 README 的部署说明，确认改动目的、所需绑定和环境变量；特别留意 KV 键结构、管理员登录/限流、订阅功能、API 路由和前端资源的变化。
+2. 将新旧代码与线上 `rex-panel` 对照。确认需要升级后，先备份控制面板的数据；不要删除或重建现有 KV 命名空间。部署时保留 Cloudflare 当前 Worker 的 KV 绑定、环境变量/Secrets 和 `rexmodel.tli.li` 自定义域名配置。若上游要求变更这些项目，先评估迁移影响，不要覆盖现有设置。
+3. 通过 Cloudflare Dashboard 的 **Workers & Pages → rex-panel → Edit code** 更新并部署代码。部署完成后检查自定义域名可访问、管理员可登录、模块列表与合集仍在，并测试模块导入/刷新等关键操作。
+4. 验证通过后，把新的上游提交号、升级日期和实际验证结果补记到本节。若改动不适用于个人实例或风险不明确，暂不部署，先保留当前线上版本。
+
+注意：`rex-panel` 目前独立部署，不是由 `rex-modules` 的 GitHub Actions 自动发布。更新个人 Rex 模块只需走本仓库的加密流程；更新控制面板后端则需要单独审查并在 Cloudflare 部署。
+
 截至 2026-10-28，红果 Worker 的旧 `workers.dev` 入口仍可访问。弃用该入口需要在 Cloudflare 的 `hongguo-rex-mlitm` Worker 设置里关闭 `workers.dev`；仅改文档、模块参数或添加自定义域名不会关闭它。
 
 ## 控制面板里的模块从哪里来
