@@ -24,10 +24,18 @@
 | 模块 | 当前来源 | 更新方式 |
 |---|---|---|
 | 漫威宇宙 | 本仓库的 `marvel-mcu-rex.js`，版本 `1.1.0`。 | 更新本仓库文件、递增版本并推送；在控制面板刷新来源。 |
-| 红果漫剧 | `hongguo-rex-mlitm.mlitm.workers.dev`。这是部署在个人 Cloudflare 账号里的 Worker；面板通过它获取红果模块。模块元数据署名为“桃子🍑”，说明代码来源不是个人仓库原创。 | Worker 仍在提供模块/接口服务，不是无用资源。面板刷新只会重新读取这个 Worker 当前提供的内容；上游红果网站变化不会自动更新 Worker。需要先取得或修改兼容代码并部署 Worker，再刷新面板。 |
+| 红果漫剧 | 模块脚本从 `https://hongguo-rex-mlitm.mlitm.workers.dev/hongguo.js` 获取；红果 API 首选 `https://hongguo-rex.tli.li`，备用地址为 `https://hongguo-rex-mlitm.mlitm.workers.dev`。两者指向个人 Cloudflare 账号里同一个 Worker。模块元数据署名为“桃子🍑”，说明代码来源不是个人仓库原创。 | Worker 仍在提供模块和 `/v1/*` API 服务，不是无用资源。上游红果网站变化不会自动更新 Worker；需要先取得或修改兼容代码并部署 Worker。 |
 | 爱奇艺 | 外部仓库 `MakkaPakka518/Rex_Widget` 的 `iqiyi.js` Raw 地址。该文件是 `REXENC` 加密格式。 | 上游更新同一分支文件后，在控制面板对该模块执行“刷新”，面板才会重新拉取；不会随 GitHub 提交自动更新。加密文件的元数据无法从明文直接读取，所以面板不显示版本号不代表文件一定没有内部版本。 |
 
-Cloudflare 的 `hongguo-rex-mlitm` 和 `rex-panel` 是两个不同 Worker：前者提供红果模块/接口，后者是模块控制面板。截图中的 Worker 清单不是 GitHub 模块清单；删除红果 Worker 会影响面板当前引用的红果来源或接口。
+Cloudflare 的 `hongguo-rex-mlitm` 和 `rex-panel` 是两个不同 Worker：前者提供红果模块/接口，后者是模块控制面板。截图中的 Worker 清单不是 GitHub 模块清单；删除红果 Worker 会影响面板当前引用的红果来源和红果 API。
+
+红果模块的 `apiBase` 参数应填写 API 根地址，不要加 `/v1` 或 `/api/v2`。目前推荐填写：
+
+```text
+https://hongguo-rex.tli.li
+```
+
+该自定义域名绑定到 `hongguo-rex-mlitm`，并已验证 `/health` 和 `/api/v2/search/anime` 可用。原 `https://hongguo-rex-mlitm.mlitm.workers.dev` 暂时保留作备用。Rex 客户端中如 `apiBase` 已保存旧地址，需要在红果模块的参数设置中改为新地址并保存；Cloudflare 添加域名不会自动改写客户端本地参数。
 
 ## GitHub 与控制面板的更新关系
 
