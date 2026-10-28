@@ -1,0 +1,42 @@
+name: Encrypt Rex modules
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: encrypt-rex-modules-main
+  cancel-in-progress: false
+
+jobs:
+  encrypt:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: main
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Encrypt changed root modules
+        run: node tools/encrypt-modules.mjs --all
+
+      - name: Commit encrypted files
+        run: |
+          if git diff --quiet -- encrypted/; then
+            echo "No encrypted files changed."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add encrypted/
+          git commit -m "chore: refresh encrypted Rex modules"
+          git push

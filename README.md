@@ -8,8 +8,11 @@
 
 | 文件 | 用途 |
 |---|---|
-| `marvel-mcu-rex.js` | 个人仓库中的漫威宇宙模块，含电影和电视剧列表；版本 `1.1.0`。 |
+| `marvel-mcu-rex.js` | 漫威宇宙模块源码，含电影和电视剧列表；版本 `1.1.0`。 |
+| `encrypted/marvel-mcu-rex.js` | 由 Rex 官方加密服务生成的导入文件。 |
 | `peach-logo.png` | 模块使用的图片素材。 |
+| `.github/workflows/encrypt-modules.yml` | 源码推送到 `main` 后自动生成或更新加密发布文件。 |
+| `tools/encrypt-modules.mjs` | 调用 Rex 官方加密接口并检查返回格式。 |
 | `README.md` | 本说明。 |
 
 红果和爱奇艺目前不在这个 GitHub 仓库里。仓库内容以 GitHub `main` 分支的实际文件列表为准；新增或移除文件后应同步维护本表。
@@ -35,16 +38,17 @@ Cloudflare 的 `hongguo-rex-mlitm` 和 `rex-panel` 是两个不同 Worker：前�
 3. 在控制面板该模块的菜单中点“刷新”，从已保存的 Raw URL 重新拉取文件。
 4. 确认面板显示的文件和版本；如 Rex 播放器仍使用缓存，再按播放器内的刷新/重新导入流程同步。
 
-建议把个人模块链接写成：
+个人模块建议导入加密发布文件的 Raw URL：
 
 ```text
-https://raw.githubusercontent.com/zt001110/rex-modules/main/<文件名>.js
+https://raw.githubusercontent.com/zt001110/rex-modules/main/encrypted/<文件名>.js
 ```
 
-例如：
+例如，漫威模块源码链接和加密导入链接分别是：
 
 ```text
-https://raw.githubusercontent.com/zt001110/rex-modules/main/marvel-mcu-rex.js
+源码：https://raw.githubusercontent.com/zt001110/rex-modules/main/marvel-mcu-rex.js
+加密导入：https://raw.githubusercontent.com/zt001110/rex-modules/main/encrypted/marvel-mcu-rex.js
 ```
 
 作者把模块放在外部仓库时，也可以导入其公开 Raw URL。刷新只会重新下载该 URL 对应的文件；网站或 API 本身变化不会自动修复模块代码。若上游更改文件路径或仓库权限，需先更新控制面板保存的来源地址。
@@ -57,10 +61,11 @@ https://raw.githubusercontent.com/zt001110/rex-modules/main/marvel-mcu-rex.js
 2. 依据 Rex/ForwardWidget 约定实现列表、详情、搜索或媒体功能，并在本地做语法及针对性测试。
 3. 发布更新时递增 `WidgetMetadata.version`；不要把密码、Cookie、Token 或 API 密钥写入公开仓库。
 4. 把源码提交并推送到本仓库 `main`，在 README 的文件表补上新模块。
-5. 首次使用时，把对应的 GitHub Raw URL 添加到控制面板；之后更新时对现有条目点“刷新”。
-6. 在 Rex 中刷新或重新导入，并用 Rex 内置模块测试确认真实运行结果。
+5. GitHub Actions 会调用 Rex 官方加密服务，为变更的根目录 `.js` 文件生成 `encrypted/<文件名>.js`，并把产物提交回 `main`。加密失败会让工作流失败，不会用明文代替密文。
+6. 等加密工作流成功后，首次将 `encrypted/<文件名>.js` 的 Raw URL 添加到控制面板；以后更新时对现有条目点“刷新”。
+7. 在 Rex 中刷新或重新导入，并用 Rex 内置模块测试确认真实运行结果。
 
-加密是可选的。公开仓库可以保留可维护源码；如需给 Rex 导入加密版本，应保留本地未加密备份，并明确区分源码与加密产物。不要把未取得授权的第三方模块改名后当作原创发布；保留作者署名，并遵循上游许可。
+仓库保留未加密源码，`encrypted/` 存放单独生成的加密产物；不要手工用密文覆盖源码。加密接口会接收源码，因此只提交本来就允许公开的代码，不要把密码、Cookie、Token 或 API 密钥放进模块。不要把未取得授权的第三方模块改名后当作原创发布；保留作者署名，并遵循上游许可。
 
 ## 本地检查
 
