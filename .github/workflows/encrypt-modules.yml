@@ -26,8 +26,11 @@ jobs:
         with:
           node-version: 22
 
-      - name: Encrypt changed root modules
-        run: node tools/encrypt-modules.mjs --all
+      - name: Encrypt changed modules
+        env:
+          BEFORE_SHA: ${{ github.event.before }}
+          AFTER_SHA: ${{ github.sha }}
+        run: node tools/encrypt-modules.mjs "$BEFORE_SHA" "$AFTER_SHA"
 
       - name: Commit encrypted files
         run: |

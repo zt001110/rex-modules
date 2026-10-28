@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
-import { basename, join } from 'node:path';
+import { dirname, join } from 'node:path';
 
 const endpoint = 'https://api.rexnow.tv/api/widgets/encrypt';
 const maxBytes = 2 * 1024 * 1024;
@@ -9,10 +9,18 @@ const args = process.argv.slice(2).filter(arg => arg !== '--all');
 const [before, after] = args;
 const root = process.cwd();
 
-function changedRootModules() {
+function isModuleSource(path) {
+  return /^(?:modules\/)?[^/]+\.js$/.test(path);
+}
+
+function encryptedPath(path) {
+  return join('encrypted', path);
+}
+
+function changedModules() {
   if (all || !before || !after || /^0+$/.test(before)) {
     return execFileSync('git', ['ls-files', '--cached', '--others', '--exclude-standard', '*.js'], { encoding: 'utf8' })
-      .split(/\r?\n/).filter(path => /^[^/]+\.js$/.test(path)).map(path => ({ path }));
+      .split(/\r?\n/).filter(isModuleSource).map(path => ({ path }));
   }
 
   const diff = execFileSync('git', ['diff', '--name-status', '--find-renames', before, after], { encoding: 'utf8' });
@@ -21,12 +29,12 @@ function changedRootModules() {
     const [status, ...paths] = line.split('\t');
     if (status.startsWith('R') && paths.length === 2) {
       const [oldPath, newPath] = paths;
-      if (/^[^/]+\.js$/.test(oldPath)) changed.set(oldPath, { path: oldPath, deleted: true });
-      if (/^[^/]+\.js$/.test(newPath)) changed.set(newPath, { path: newPath });
+      if (isModuleSource(oldPath)) changed.set(oldPath, { path: oldPath, deleted: true });
+      if (isModuleSource(newPath)) changed.set(newPath, { path: newPath });
       continue;
     }
     for (const path of paths) {
-      if (!/^[^/]+\.js$/.test(path)) continue;
+      if (!isModuleSource(path)) continue;
       changed.set(path, status === 'D' ? { path, deleted: true } : { path });
     }
   }
@@ -67,17 +75,17 @@ async function encrypt(path) {
 
   const output = await response.text();
   validateEncrypted(output);
-  const target = join(root, 'encrypted', basename(path));
-  await mkdir(join(root, 'encrypted'), { recursive: true });
+  const target = join(root, encryptedPath(path));
+  await mkdir(dirname(target), { recursive: true });
   await writeFile(target, output, 'utf8');
-  console.log(`Encrypted ${path} -> encrypted/${basename(path)}`);
+  console.log(`Encrypted ${path} -> ${encryptedPath(path)}`);
 }
 
-for (const { path, deleted } of changedRootModules()) {
-  const target = join(root, 'encrypted', basename(path));
+for (const { path, deleted } of changedModules()) {
+  const target = join(root, encryptedPath(path));
   if (deleted) {
     await rm(target, { force: true });
-    console.log(`Removed encrypted/${basename(path)} because ${path} was deleted.`);
+    console.log(`Removed ${encryptedPath(path)} because ${path} was deleted.`);
   } else {
     await encrypt(path);
   }
@@ -85,11 +93,21 @@ for (const { path, deleted } of changedRootModules()) {
 
 if (all) {
   const sources = new Set(execFileSync('git', ['ls-files', '--cached', '--others', '--exclude-standard', '*.js'], { encoding: 'utf8' })
-    .split(/\r?\n/).filter(path => /^[^/]+\.js$/.test(path)).map(path => basename(path)));
-  for (const filename of await readdir(join(root, 'encrypted')).catch(() => [])) {
-    if (filename.endsWith('.js') && !sources.has(filename)) {
-      await rm(join(root, 'encrypted', filename), { force: true });
-      console.log(`Removed encrypted/${filename} because its source no longer exists.`);
+    .split(/\r?\n/).filter(isModuleSource));
+  const encryptedRoot = join(root, 'encrypted');
+  const existing = [];
+  for (const entry of await readdir(encryptedRoot, { withFileTypes: true }).catch(() => [])) {
+    if (entry.isFile() && entry.name.endsWith('.js')) existing.push(entry.name);
+    if (entry.isDirectory() && entry.name === 'modules') {
+      for (const nested of await readdir(join(encryptedRoot, entry.name), { withFileTypes: true })) {
+        if (nested.isFile() && nested.name.endsWith('.js')) existing.push(join('modules', nested.name));
+      }
+    }
+  }
+  for (const path of existing) {
+    if (!sources.has(path)) {
+      await rm(join(encryptedRoot, path), { force: true });
+      console.log(`Removed ${encryptedPath(path)} because its source no longer exists.`);
     }
   }
 }

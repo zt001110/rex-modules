@@ -1,6 +1,6 @@
 # Rex 模块仓库说明
 
-个人模块仓库：[zt001110/rex-modules](https://github.com/zt001110/rex-modules)。今后新做的 Rex 模块默认在这个仓库中保存、校验并发布，再由 Rex 模块控制面板从 GitHub Raw 地址导入。不要只把唯一一份模块留在控制面板里。
+个人模块仓库：[zt001110/rex-modules](https://github.com/zt001110/rex-modules)。本机工作副本位于 `~/Library/Mobile Documents/com~apple~CloudDocs/Codex/Rex模块`。新做和维护的 Rex 模块都在这个仓库保存、校验和发布，再由 Rex 模块控制面板导入；不要只把唯一一份模块留在控制面板里。
 
 ## 仓库当前内容
 
@@ -8,14 +8,24 @@
 
 | 文件 | 用途 |
 |---|---|
-| `marvel-mcu-rex.js` | 漫威宇宙模块源码，含电影和电视剧列表；版本 `1.1.0`。 |
-| `encrypted/marvel-mcu-rex.js` | 由 Rex 官方加密服务生成的导入文件。 |
+| `modules/marvel-mcu-rex.js` | 漫威宇宙模块源码，含电影和电视剧列表；版本 `1.1.0`。以后个人模块源码统一放在 `modules/`。 |
+| `encrypted/modules/marvel-mcu-rex.js` | 自动加密生成的控制面板导入文件。 |
 | `peach-logo.png` | 模块使用的图片素材。 |
 | `.github/workflows/encrypt-modules.yml` | 源码推送到 `main` 后自动生成或更新加密发布文件。 |
 | `tools/encrypt-modules.mjs` | 调用 Rex 官方加密接口并检查返回格式。 |
 | `README.md` | 本说明。 |
 
-红果和爱奇艺目前不在这个 GitHub 仓库里。仓库内容以 GitHub `main` 分支的实际文件列表为准；新增或移除文件后应同步维护本表。
+红果 Worker、控制面板 Worker 和爱奇艺模块都不在这个 GitHub 仓库里。模块源码及其加密导入件以 GitHub `main` 分支实际文件为准；新增或移除个人模块后同步维护本表。
+
+## 仓库、Cloudflare 和控制面板
+
+- **GitHub 模块仓库**：`zt001110/rex-modules`。个人 Rex 模块源码、GitHub Actions 加密流程和加密产物都在这里。
+- **本机仓库目录**：`~/Library/Mobile Documents/com~apple~CloudDocs/Codex/Rex模块`。在 Codex 新窗口继续维护时，打开这个目录并先读本 README 和 `Rex模块开发` skill。
+- **Cloudflare 部署**：登录 Cloudflare Dashboard，进入 **Workers & Pages**。`hongguo-rex-mlitm` 是红果 API/模块 Worker；`rex-panel` 是独立的模块控制面板 Worker。它们不是 `rex-modules` 仓库里的 GitHub Actions 部署。
+- **红果自定义域名**：`https://hongguo-rex.tli.li`；模块脚本为 `/hongguo.js`，API 参数 `apiBase` 填域名根地址。Cloudflare 添加域名不会自动改写控制面板保存的脚本来源或 Rex 客户端参数。
+- **Worker 源码位置**：当前 `rex-modules` 仓库不含这两个 Worker 的源码或 Wrangler 配置。改个人模块只需更新本仓库；要改 Worker 的 API/部署设置，则在 Cloudflare 的对应 Worker 中单独维护和部署，不能指望模块仓库的加密工作流替它发布。
+
+截至 2026-10-28，红果 Worker 的旧 `workers.dev` 入口仍可访问。弃用该入口需要在 Cloudflare 的 `hongguo-rex-mlitm` Worker 设置里关闭 `workers.dev`；仅改文档、模块参数或添加自定义域名不会关闭它。
 
 ## 控制面板里的模块从哪里来
 
@@ -23,9 +33,9 @@
 
 | 模块 | 当前来源 | 更新方式 |
 |---|---|---|
-| 漫威宇宙 | 本仓库的 `marvel-mcu-rex.js`，版本 `1.1.0`。 | 更新本仓库文件、递增版本并推送；在控制面板刷新来源。 |
-| 红果漫剧 | 模块脚本从 `https://hongguo-rex-mlitm.mlitm.workers.dev/hongguo.js` 获取；红果 API 首选 `https://hongguo-rex.tli.li`，备用地址为 `https://hongguo-rex-mlitm.mlitm.workers.dev`。两者指向个人 Cloudflare 账号里同一个 Worker。模块元数据署名为“桃子🍑”，说明代码来源不是个人仓库原创。 | Worker 仍在提供模块和 `/v1/*` API 服务，不是无用资源。上游红果网站变化不会自动更新 Worker；需要先取得或修改兼容代码并部署 Worker。 |
-| 爱奇艺 | 外部仓库 `MakkaPakka518/Rex_Widget` 的 `iqiyi.js` Raw 地址。该文件是 `REXENC` 加密格式。 | 上游更新同一分支文件后，在控制面板对该模块执行“刷新”，面板才会重新拉取；不会随 GitHub 提交自动更新。加密文件的元数据无法从明文直接读取，所以面板不显示版本号不代表文件一定没有内部版本。 |
+| 漫威宇宙 | 本仓库的 `modules/marvel-mcu-rex.js`，版本 `1.1.0`。 | 更新源码、递增版本并推送；等待 Actions 加密成功后，在控制面板刷新来源。 |
+| 红果漫剧 | 切换目标为 `https://hongguo-rex.tli.li/hongguo.js`；控制面板中已保存的旧来源仍需管理员登录后替换。模块元数据署名为“桃子🍑”，说明代码来源不是个人仓库原创。 | 新域名绑定到个人 Cloudflare 账号中的红果 Worker，提供模块和 API。上游红果网站变化不会自动更新 Worker；需要先取得或修改兼容代码并部署 Worker。 |
+| 爱奇艺 | 外部仓库 `MakkaPakka518/Rex_Widget` 的 `iqiyi.js` Raw 地址。当前导入文件是 `REXENC` 加密格式。 | 上游更新同一分支文件后，在控制面板对该模块执行“刷新”，面板才会重新拉取；不会随 GitHub 提交自动更新。截图中该文件没有显示版本号，表示面板没有从这个文件识别出可显示的版本；不能据此判断它是否最新。 |
 
 Cloudflare 的 `hongguo-rex-mlitm` 和 `rex-panel` 是两个不同 Worker：前者提供红果模块/接口，后者是模块控制面板。截图中的 Worker 清单不是 GitHub 模块清单；删除红果 Worker 会影响面板当前引用的红果来源和红果 API。
 
@@ -35,42 +45,51 @@ Cloudflare 的 `hongguo-rex-mlitm` 和 `rex-panel` 是两个不同 Worker：前�
 https://hongguo-rex.tli.li
 ```
 
-该自定义域名绑定到 `hongguo-rex-mlitm`，并已验证 `/health` 和 `/api/v2/search/anime` 可用。原 `https://hongguo-rex-mlitm.mlitm.workers.dev` 暂时保留作备用。Rex 客户端中如 `apiBase` 已保存旧地址，需要在红果模块的参数设置中改为新地址并保存；Cloudflare 添加域名不会自动改写客户端本地参数。
+该自定义域名绑定到 `hongguo-rex-mlitm`，并已验证 `/health` 和 `/hongguo.js` 可用。红果模块来源及 Rex 客户端的 `apiBase` 都应切换为这个自定义域名；`apiBase` 不要加 `/v1` 或 `/api/v2`。Cloudflare 添加域名不会自动改写控制面板已保存的模块来源或客户端本地参数，需分别更新并保存。截至 2026-10-28，旧 `workers.dev` 入口仍可访问；要彻底弃用它，还需在 Cloudflare 的 Worker 设置中关闭 `workers.dev`。
 
 ## GitHub 与控制面板的更新关系
 
-控制面板“链接添加”时会从 URL 下载文件并保存一份，同时记住来源 URL。导入不是实时代理，也不会因为 GitHub 有新提交就立即改变面板里的副本。要更新：
+控制面板“链接添加”时会从 URL 下载文件并保存一份，同时记住来源 URL。导入不是实时代理，也不会因为作者在 GitHub 更新就自动改变面板里的副本。作者更新了**同一 Raw URL** 后，要在对应模块右侧 `…` 菜单点“刷新”，面板才会重新下载。若作者改了仓库、分支或文件路径，要先把面板保存的来源 URL 改成新链接，或删除旧条目后重新添加。
 
-1. 上游更新了文件，或我们修改了个人仓库中的模块。
-2. 对个人维护的模块递增 `WidgetMetadata.version`，提交并推送到 `main`。
-3. 在控制面板该模块的菜单中点“刷新”，从已保存的 Raw URL 重新拉取文件。
-4. 确认面板显示的文件和版本；如 Rex 播放器仍使用缓存，再按播放器内的刷新/重新导入流程同步。
+个人模块更新流程：
+
+1. 修改 `modules/<模块名>.js`，保持 `WidgetMetadata.id` 稳定；有功能更新时递增 `WidgetMetadata.version`。
+2. 提交并推送到 `main`。GitHub Actions 自动加密本次变动的模块，并把生成文件提交到仓库；不需要手动运行加密。
+3. 确认 GitHub 仓库 **Actions → Encrypt Rex modules** 成功，且对应 `encrypted/modules/<模块名>.js` 已更新。
+4. 在控制面板对应模块的 `…` 菜单点“刷新”，从已保存的 Raw URL 重新拉取。加密文件无法显示版本时，以源码的 `WidgetMetadata.version` 和 GitHub Actions 成功状态确认。
+5. 若 Rex 客户端没有同步面板更新，再在 Rex 中刷新或重新导入并做实际运行检查。
 
 个人模块建议导入加密发布文件的 Raw URL：
 
 ```text
-https://raw.githubusercontent.com/zt001110/rex-modules/main/encrypted/<文件名>.js
+https://raw.githubusercontent.com/zt001110/rex-modules/main/encrypted/modules/<文件名>.js
 ```
 
 例如，漫威模块源码链接和加密导入链接分别是：
 
 ```text
-源码：https://raw.githubusercontent.com/zt001110/rex-modules/main/marvel-mcu-rex.js
-加密导入：https://raw.githubusercontent.com/zt001110/rex-modules/main/encrypted/marvel-mcu-rex.js
+源码：https://raw.githubusercontent.com/zt001110/rex-modules/main/modules/marvel-mcu-rex.js
+加密导入：https://raw.githubusercontent.com/zt001110/rex-modules/main/encrypted/modules/marvel-mcu-rex.js
 ```
 
+文件路径会映射到加密产物路径：`modules/foo.js` → `encrypted/modules/foo.js`。重命名或移动源码时，Actions 会删除旧密文并生成新路径的密文，不用手动改密文；但控制面板不会自动更改保存的 Raw URL，必须同步改成新路径。为避免这一步，尽量保持模块文件路径稳定。
+
 作者把模块放在外部仓库时，也可以导入其公开 Raw URL。刷新只会重新下载该 URL 对应的文件；网站或 API 本身变化不会自动修复模块代码。若上游更改文件路径或仓库权限，需先更新控制面板保存的来源地址。
+
+### 为什么爱奇艺没有版本号
+
+截图里爱奇艺条目没有版本标签，而漫威和红果有。这个爱奇艺文件是外部作者发布的 `REXENC` 加密文件；控制面板当前没有从它识别出可展示的版本元数据。加密文件的显示能力取决于文件格式和元数据是否可识别，不能简单认为所有加密模块都没有版本。版本标签为空也不代表模块没有更新；需要按上面的步骤手动刷新来源。
 
 ## 以后新增个人模块
 
 默认工作流程：
 
-1. 在本仓库根目录新增 `<模块名>.js`，保持 `WidgetMetadata.id` 稳定且唯一。
+1. 在本仓库 `modules/` 新增 `<模块名>.js`，保持 `WidgetMetadata.id` 稳定且唯一。GitHub 网页端可进入 `modules/` 后选 **Add file → Create new file**，文件名写成 `modules/<模块名>.js`；本机/Codex 则直接在该目录新建。
 2. 依据 Rex/ForwardWidget 约定实现列表、详情、搜索或媒体功能，并在本地做语法及针对性测试。
 3. 发布更新时递增 `WidgetMetadata.version`；不要把密码、Cookie、Token 或 API 密钥写入公开仓库。
 4. 把源码提交并推送到本仓库 `main`，在 README 的文件表补上新模块。
-5. GitHub Actions 会调用 Rex 官方加密服务，为变更的根目录 `.js` 文件生成 `encrypted/<文件名>.js`，并把产物提交回 `main`。加密失败会让工作流失败，不会用明文代替密文。
-6. 等加密工作流成功后，首次将 `encrypted/<文件名>.js` 的 Raw URL 添加到控制面板；以后更新时对现有条目点“刷新”。
+5. 推送到 `main` 后，GitHub Actions 会调用 Rex 官方加密服务，为变更的 `modules/*.js` 生成 `encrypted/modules/<文件名>.js`，并把产物提交回 `main`。加密失败会让工作流失败，不会用明文代替密文。
+6. 等加密工作流成功后，首次把 `encrypted/modules/<文件名>.js` 的 Raw URL 添加到控制面板；以后同路径更新时对现有条目点“刷新”。
 7. 在 Rex 中刷新或重新导入，并用 Rex 内置模块测试确认真实运行结果。
 
 仓库保留未加密源码，`encrypted/` 存放单独生成的加密产物；不要手工用密文覆盖源码。加密接口会接收源码，因此只提交本来就允许公开的代码，不要把密码、Cookie、Token 或 API 密钥放进模块。不要把未取得授权的第三方模块改名后当作原创发布；保留作者署名，并遵循上游许可。
@@ -78,7 +97,7 @@ https://raw.githubusercontent.com/zt001110/rex-modules/main/encrypted/<文件名
 ## 本地检查
 
 ```bash
-node --check marvel-mcu-rex.js
+node --check modules/marvel-mcu-rex.js
 ```
 
 新模块也应运行对应文件的 `node --check` 和有针对性的本地测试。离线测试通过不代表 Rex 内实际导入、列表显示、详情或播放已经验证；交付时要分别说明验证范围。
