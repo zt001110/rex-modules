@@ -1,0 +1,16 @@
+{
+  "title": "Rex 离线缓存测试",
+  "description": "公开短片模块，验证 Rex 模块资源能否用于离线下载",
+  "icon": "https://test-videos.co.uk/user/pages/images/big_buck_bunny.jpg",
+  "widgets": [
+    {
+      "id": "zt001110.offline-cache-test",
+      "title": "离线缓存测试",
+      "description": "直接视频地址与 loadResource 两种测试",
+      "requiredVersion": "0.0.1",
+      "version": "1.0.0",
+      "author": "zt001110",
+      "url": "https://raw.githubusercontent.com/zt001110/rex-modules/main/encrypted/modules/offline-cache-test.js"
+    }
+  ]
+}

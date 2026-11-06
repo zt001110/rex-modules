@@ -4,6 +4,14 @@
 
 ## 仓库当前内容
 
+### 离线缓存测试
+
+`modules/offline-cache-test.js` 为公开短片测试模块（1.0.0），用于用户的 Rex 1.1 (4)，提供直接 `videoUrl` 和 `loadResource` 两种入口。模块订阅清单为 `offline-cache-test.fwd`，加密发布文件为 `encrypted/modules/offline-cache-test.js`。不包含 Emby 账号、凭据或服务器权限修改。
+
+运行 `node tests/offline-cache-test.mjs` 校验条目归属、详情、资源及订阅元数据。客户端离线下载能力仍需在 Rex 中导入后验证；不能把接口可用当作离线播放通过。
+
+本任务的专用工作目录为 `~/Library/Mobile Documents/com~apple~CloudDocs/Codex/Rex离线缓存测试`，模块发布副本在其 `rex-modules/` 子目录；本轮不改动原有 `Rex模块` 副本。
+
 截至 2026-10-28，`main` 分支包含：
 
 | 文件 | 用途 |
