@@ -3,13 +3,17 @@ import { readFileSync } from "node:fs";
 import vm from "node:vm";
 
 const source = readFileSync(new URL("../modules/offline-cache-test.js", import.meta.url), "utf8");
-const sandbox = vm.createContext({ console });
+const store = new Map();
+const sandbox = vm.createContext({
+  console: { log() {}, error: console.error },
+  Widget: { storage: { get: key => store.get(key), set: (key, value) => store.set(key, value) } },
+});
 vm.runInContext(source, sandbox);
 const list = await sandbox.loadSamples({});
 assert.equal(list.length, 2);
 assert.equal((await sandbox.loadSamples({ page: 2 })).length, 0);
 assert.ok(list[0].videoUrl);
-assert.equal(list[1].videoUrl, undefined);
+assert.equal(list[1].videoUrl, list[0].videoUrl);
 
 for (const item of list) {
   const detail = await sandbox.loadDetail(item.link);
@@ -18,6 +22,10 @@ for (const item of list) {
   assert.equal(detail.link, item.link);
   assert.ok(detail.coverUrl);
   const resources = await sandbox.loadResource({ link: detail.link });
+  if (item.id === list[0].id) {
+    assert.equal(resources.length, 0);
+    continue;
+  }
   assert.equal(resources.length, 1);
   assert.match(resources[0].url, /^https:\/\/test-videos\.co\.uk\/vids\/.+\.mp4$/);
   assert.equal(resources[0].playerType, "app");
@@ -36,10 +44,26 @@ for (const params of [
 assert.equal(await sandbox.loadDetail("other:1"), null);
 assert.equal(await sandbox.loadDetail(null), null);
 
+const before = JSON.parse((await sandbox.loadDiagnostics())[0].description);
+assert.ok(before.detailCalls >= 2);
+assert.ok(before.resourceCalls >= 2);
+await sandbox.loadResource({ link: list[1].link, api_key: "private-test-secret", videoUrl: "https://private.invalid/token" });
+const diagnosticItem = (await sandbox.loadDiagnostics())[0];
+const diagnostic = JSON.parse(diagnosticItem.description);
+assert.equal(diagnostic.resourceCalls, before.resourceCalls + 1);
+assert.equal(diagnostic.lastResource.sample, list[1].id);
+assert.equal(diagnostic.lastResource.videoMatches, false);
+assert.doesNotMatch(JSON.stringify([...store.values()]), /private-test-secret|private\.invalid/);
+assert.doesNotMatch(diagnosticItem.description, /private-test-secret|private\.invalid/);
+
+const noStorage = vm.createContext({ console: { log() {}, error() {} } });
+vm.runInContext(source, noStorage);
+assert.equal((await noStorage.loadResource({ link: list[1].link })).length, 1);
+
 const subscription = JSON.parse(readFileSync(new URL("../offline-cache-test.fwd", import.meta.url), "utf8"));
 assert.equal(subscription.widgets.length, 1);
 for (const key of ["id", "version", "requiredVersion", "title"]) {
   assert.equal(subscription.widgets[0][key], sandbox.WidgetMetadata[key]);
 }
 assert.match(subscription.widgets[0].url, /\/encrypted\/modules\/offline-cache-test\.js$/);
-console.log("PASS: item routing, direct/stream resources, foreign-item rejection, subscription metadata");
+console.log("PASS: playable bootstrap, direct/stream isolation, routing, private diagnostics, storage fallback, subscription metadata");

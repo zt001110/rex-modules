@@ -6,7 +6,11 @@
 
 ### 离线缓存测试
 
-`modules/offline-cache-test.js` 为公开短片测试模块（1.0.1），用于用户的 Rex 1.1 (4)，提供直接 `videoUrl` 和 `loadResource` 两种入口。模块订阅清单为 `offline-cache-test.fwd`，加密发布文件为 `encrypted/modules/offline-cache-test.js`。不包含 Emby 账号、凭据或服务器权限修改。
+`modules/offline-cache-test.js` 为公开短片测试模块（1.0.2），用于用户的 Rex 1.1 (4)。A 仅提供直接 `videoUrl`；B 同时提供初始 `videoUrl` 与 `loadResource`，避免尚未调用资源模块时没有播放入口。新增“调用诊断”可显示详情/资源函数的调用次数与是否匹配测试标识，不保存未知链接、账号或密钥。
+
+Rex 模块链接导入使用 `https://raw.githubusercontent.com/zt001110/rex-modules/main/encrypted/modules/offline-cache-test.js`。`offline-cache-test.fwd` 是备用集合清单，用户的模块链接导入入口已反馈无法导入它，不再作为本轮操作入口。
+
+用户真机已确认 1.0.1 列表返回两条，测试 B 详情显示“未加载到相关资源”；该结果尚不能判断离线下载能力。1.0.2 的播放、资源回调与下载入口仍需真机验证。若 B 能播放但资源调用为零，不能声称它已使用资源模块。
 
 加密工作流先暂存 `encrypted/`，再检查暂存差异，确保新增模块首次生成的未跟踪密文也会提交。
 
