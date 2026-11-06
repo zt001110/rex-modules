@@ -1,7 +1,7 @@
 WidgetMetadata = {
   id: "zt001110.offline-cache-test",
   title: "离线缓存测试",
-  version: "1.0.0",
+  version: "1.0.1",
   requiredVersion: "0.0.1",
   author: "zt001110",
   description: "公开测试短片：直接地址与播放资源模块",
