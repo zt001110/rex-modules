@@ -31,7 +31,7 @@ const context = vm.createContext({ console, Date: TestDate, Widget: {
     else if (url.endsWith('/v1/radio/get')) body = { code: 200, data: [song(333)] };
     else if (url.endsWith('/search/get')) body = { code: 200, result: { songs: [song(444)] } };
     else if (url.endsWith('/v1/discovery/recommend/resource')) body = { code: 200, recommend: [playlist] };
-    else if (url.endsWith('/v3/discovery/recommend/songs')) body = { code: 200, data: { dailySongs: [song(10), song(20), song(10)] } };
+    else if (url.endsWith('/v3/discovery/recommend/songs')) body = { code: 200, data: { dailySongs: [song(10), song(20), song(30), song(10)] } };
     else if (url.endsWith('/playmode/intelligence/list')) body = { code: 200, data: emptyHeart ? [] : Array.from({ length: 145 }, (_, i) => ({ songInfo: song(heartBase + i) })) };
     else if (url.endsWith('/toplist')) body = { code: 200, list: [{ ...playlist, name: '云音乐热歌榜' }, { ...playlist, name: '飙升榜' }] };
     else if (url.endsWith('/song/enhance/player/url/v1')) body = { code: 200, data: JSON.parse(q.ids).map(id => ({
@@ -108,8 +108,27 @@ async function main() {
   assert.equal(sent.options.headers.Cookie, cookie + '; os=pc');
   assert.equal(JSON.parse(storage.get('ncm.account.v1')).cookie, cookie + '; os=android');
   assert.equal((await context.loadRecommendedPlaylists({}))[0].link, 'ncm:playlist:42');
-  const daily = (await context.loadDaily({}))[0];
-  assert.match(daily.link, /^ncm:queue:/);
+  const dailySongs = await context.loadDaily({});
+  assert.deepEqual(Array.from(dailySongs, s => s.title), ['Song 10', 'Song 20', 'Song 30']);
+  assert.equal(dailySongs[1].link, dailySongs[0].link + ':1');
+  assert.equal(dailySongs[2].link, dailySongs[0].link + ':2');
+  assert.equal(JSON.parse(storage.get('ncm.queues.v1')).length, 1);
+  for (const item of dailySongs) {
+    assert.equal(item.id, item.link);
+    assert.equal(item.mediaType, 'tv');
+    assert.equal(item.type, 'url');
+    assert.match(item.coverUrl, /^https:/);
+    assert.equal(item.episodeItems, undefined);
+  }
+  const dailyTail = await context.loadDetail(dailySongs[1].link);
+  assert.deepEqual(Array.from(dailyTail.episodeItems, s => s.link), ['ncm:song:20', 'ncm:song:30']);
+  assert.equal(dailyTail.episodeItems[0].episode, 2);
+  assert.equal(dailyTail.episodeItems[1].episode, 3);
+  assert.match(dailyTail.episodeItems[0].videoUrl, /audio-20\.mp3/);
+  assert.match(dailyTail.episodeItems[1].videoUrl, /audio-30\.mp3/);
+  assert.equal(calls.filter(c => c.url.endsWith('/song/enhance/player/url/v1')).at(-1).options.params.ids, '[20,30]');
+  // Existing daily queue links remain readable after the card layout changes.
+  const daily = context.ncmSaveQueue('每日推荐', [song(10), song(20)], { userId: 88 })[0];
   let queue = await context.loadDetail(daily.link);
   assert.equal(queue.mediaType, 'tv');
   assert.equal(queue.episodeItems.length, 2);

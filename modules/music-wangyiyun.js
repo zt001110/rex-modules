@@ -1,7 +1,7 @@
 WidgetMetadata = {
   id: "mlitm.netease.account",
   title: "网易云音乐 · 我的音乐",
-  version: "1.1.3",
+  version: "1.1.4",
   requiredVersion: "0.0.1",
   description: "账号歌单、每日推荐、推荐歌单、漫游、心动模式与热歌榜，按账号权限在线播放。",
   author: "mlitm",
@@ -235,13 +235,18 @@ function ncmMakeQueue(title, songs, profile, id) {
 }
 
 function ncmSaveQueue(title, songs, profile) {
-  var queue = ncmMakeQueue(title, songs, profile), now = Date.now();
+  var queue = ncmMakeQueue(title, songs, profile);
+  ncmStoreQueue(queue);
+  return [ncmQueueItem(queue)];
+}
+
+function ncmStoreQueue(queue) {
+  var now = Date.now();
   var queues = ncmReadQueues().filter(function (q) {
     return q.userId === queue.userId && now - q.created < 86400000;
   }).slice(-11);
   queues.push(queue);
   Widget.storage.set(NCM_QUEUES, JSON.stringify(queues));
-  return [ncmQueueItem(queue)];
 }
 
 async function loadRecommendedPlaylists(params) {
@@ -257,9 +262,26 @@ async function loadRecommendedPlaylists(params) {
 
 async function loadDaily(params) {
   return ncmGuard(async function () {
-    var config = ncmConfig(params), profile = await ncmProfile(config);
+    var config = ncmConfig(params);
+    var profile = await ncmProfile(config);
     var data = await ncmApi("/v3/discovery/recommend/songs", {}, config);
-    return ncmSaveQueue("每日推荐", (data.data || {}).dailySongs || [], profile);
+    var seen = {}, songs = ((data.data || {}).dailySongs || []).filter(function (song) {
+      if (!song || !ncmId(song.id) || seen[String(song.id)]) return false;
+      seen[String(song.id)] = true;
+      return true;
+    });
+    if (!songs.length) ncmFail("每日推荐暂未返回歌曲，请稍后刷新");
+    var queue = ncmMakeQueue("每日推荐", songs, profile);
+    ncmStoreQueue(queue);
+    return songs.map(function (song, index) {
+      var card = ncmQueueItem(queue, index), item = ncmSong(song);
+      card.title = item.title;
+      card.description = item.description;
+      card.coverUrl = item.coverUrl;
+      card.posterPath = item.posterPath;
+      card.backdropPath = item.backdropPath;
+      return card;
+    });
   });
 }
 
