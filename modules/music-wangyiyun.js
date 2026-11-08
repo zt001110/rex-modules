@@ -1,7 +1,7 @@
 WidgetMetadata = {
   id: "mlitm.netease.account",
   title: "网易云音乐 · 我的音乐",
-  version: "1.1.7",
+  version: "1.1.8",
   requiredVersion: "0.0.1",
   description: "账号歌单、每日推荐、推荐歌单、心动模式与热歌榜，按账号权限在线播放。",
   author: "mlitm",
@@ -16,16 +16,12 @@ WidgetMetadata = {
     ] }
   ],
   modules: [
-    { id: "daily", title: "每日推荐", functionName: "loadDaily", cacheDuration: 0, params: [] },
-    { id: "recommended", title: "推荐歌单", functionName: "loadRecommendedPlaylists", cacheDuration: 0, params: [] },
-    { id: "hot", title: "热歌榜", functionName: "loadHot", cacheDuration: 300, params: [] },
     { id: "playlists", title: "我的歌单", functionName: "loadMyPlaylists", cacheDuration: 0, params: [
       { name: "page", title: "页码", type: "page" }
     ] },
-    { id: "playlist", title: "打开歌单", functionName: "loadPlaylist", cacheDuration: 0, params: [
-      { name: "playlistId", title: "网易云歌单 ID", type: "input" },
-      { name: "page", title: "页码", type: "page" }
-    ] },
+    { id: "recommended", title: "推荐歌单", functionName: "loadRecommendedPlaylists", cacheDuration: 0, params: [] },
+    { id: "daily", title: "每日推荐", functionName: "loadDaily", cacheDuration: 0, params: [] },
+    { id: "hot", title: "热歌榜", functionName: "loadHot", cacheDuration: 300, params: [] },
     { id: "loadResource", title: "网易云账号播放", functionName: "loadResource", type: "stream", cacheDuration: 0, params: [] },
     { id: "account", title: "账号状态", functionName: "loadAccount", cacheDuration: 0, params: [
       { name: "action", title: "账号操作", type: "enumeration", value: "status", enumOptions: [
