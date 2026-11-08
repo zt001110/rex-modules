@@ -1,7 +1,7 @@
 WidgetMetadata = {
   id: "mlitm.netease.account",
   title: "网易云音乐 · 我的音乐",
-  version: "1.1.0",
+  version: "1.1.1",
   requiredVersion: "0.0.1",
   description: "账号歌单、每日推荐、推荐歌单、漫游、心动模式与热歌榜，按账号权限在线播放。",
   author: "mlitm",
@@ -64,6 +64,7 @@ WidgetMetadata = {
 var NCM_SITE = "https://music.163.com";
 var NCM_STORAGE = "ncm.account.v1";
 var NCM_QUEUES = "ncm.queues.v1";
+var NCM_HEART_CACHE = "ncm.heart.daily.v1";
 var NCM_PAGE = 100;
 
 function ncmRead() {
@@ -184,6 +185,7 @@ async function loadAccount(params) {
     if ((params || {}).action === "clear") {
       Widget.storage.remove(NCM_STORAGE);
       Widget.storage.remove(NCM_QUEUES);
+      Widget.storage.remove(NCM_HEART_CACHE);
       return [{ id: "ncm:status", type: "url", title: "本模块登录缓存已清除", description: "请同时清空模块全局参数中的 Cookie。" }];
     }
     var profile = await ncmProfile(ncmConfig(params));
@@ -269,6 +271,10 @@ async function loadHeart(params) {
     var playlistId = String(p.playlistId || "").trim(), songId = String(p.songId || "").trim();
     if (playlistId && !ncmId(playlistId)) ncmFail("种子歌单 ID 无效");
     if (songId && !ncmId(songId)) ncmFail("种子歌曲 ID 无效");
+    var day = ncmBeijingDay(Date.now());
+    var cache = ncmReadHeartCache(profile.userId, day);
+    var cacheKey = "seed:" + playlistId + ":" + songId;
+    if (cache.queues[cacheKey]) return [ncmQueueItem(cache.queues[cacheKey])];
     if (!playlistId) {
       var lists = await ncmApi("/user/playlist", { uid: profile.userId, limit: 100, offset: 0 }, config);
       var liked = (lists.playlist || []).filter(function (list) {
@@ -286,8 +292,24 @@ async function loadHeart(params) {
     var data = await ncmApi("/playmode/intelligence/list", {
       songId: songId, startMusicId: songId, playlistId: playlistId, type: "fromPlayOne", count: 30
     }, config);
-    return ncmSaveQueue("心动模式", (data.data || []).map(function (entry) { return entry.songInfo; }), profile);
+    var items = ncmSaveQueue("心动模式", (data.data || []).map(function (entry) { return entry.songInfo; }), profile);
+    var queueId = ncmLink(items[0].link).id;
+    cache.queues[cacheKey] = ncmReadQueues().filter(function (queue) { return queue.id === queueId; })[0];
+    Widget.storage.set(NCM_HEART_CACHE, JSON.stringify(cache));
+    return items;
   });
+}
+
+function ncmBeijingDay(time) {
+  return new Date(time + 8 * 3600000).toISOString().slice(0, 10);
+}
+
+function ncmReadHeartCache(userId, day) {
+  var raw = Widget.storage.get(NCM_HEART_CACHE), cache;
+  try { cache = typeof raw === "string" ? JSON.parse(raw) : raw; } catch (_) {}
+  if (cache && cache.userId === String(userId) && (!day || cache.day === day) &&
+      cache.queues && typeof cache.queues === "object" && !Array.isArray(cache.queues)) return cache;
+  return { userId: String(userId), day: day, queues: {} };
 }
 
 async function loadHot(params) {
@@ -375,7 +397,10 @@ function ncmPageNeighbors(item, total, offset, makeItem) {
 }
 
 async function ncmQueueDetail(route, config, profile) {
-  var queue = ncmReadQueues().filter(function (q) {
+  // Keep today's heart queues available even after other recommendations rotate the recent list.
+  var heartQueues = ncmReadHeartCache(profile.userId).queues;
+  var queues = ncmReadQueues().concat(Object.keys(heartQueues).map(function (key) { return heartQueues[key]; }));
+  var queue = queues.filter(function (q) {
     return q.id === route.id && q.userId === String(profile.userId) && Date.now() - q.created < 86400000;
   })[0];
   if (!queue) ncmFail("推荐队列已过期，请返回模块重新获取");
