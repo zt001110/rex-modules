@@ -48,7 +48,7 @@ vm.runInContext(fs.readFileSync(target, 'utf8'), context);
 async function main() {
   assert.equal(context.WidgetMetadata.id, 'mlitm.netease.account');
   assert.deepEqual(Array.from(context.WidgetMetadata.modules.filter(m => !m.type), m => m.id),
-    ['daily', 'heart', 'recommended', 'hot', 'playlists', 'playlist', 'account']);
+    ['daily', 'recommended', 'hot', 'playlists', 'playlist', 'account']);
   for (const m of context.WidgetMetadata.modules) assert.equal(typeof context[m.functionName], 'function');
   await assert.rejects(context.loadAccount({}), /Cookie/);
   const cookie = 'MUSIC_U=fixture-only; __csrf=fixture-csrf';

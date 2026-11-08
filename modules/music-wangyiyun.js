@@ -1,7 +1,7 @@
 WidgetMetadata = {
   id: "mlitm.netease.account",
   title: "网易云音乐 · 我的音乐",
-  version: "1.1.6",
+  version: "1.1.7",
   requiredVersion: "0.0.1",
   description: "账号歌单、每日推荐、推荐歌单、心动模式与热歌榜，按账号权限在线播放。",
   author: "mlitm",
@@ -17,10 +17,6 @@ WidgetMetadata = {
   ],
   modules: [
     { id: "daily", title: "每日推荐", functionName: "loadDaily", cacheDuration: 0, params: [] },
-    { id: "heart", title: "心动模式", functionName: "loadHeart", cacheDuration: 0, params: [
-      { name: "playlistId", title: "种子歌单 ID（留空用我喜欢的音乐）", type: "input" },
-      { name: "songId", title: "种子歌曲 ID（留空用歌单第一首）", type: "input" }
-    ] },
     { id: "recommended", title: "推荐歌单", functionName: "loadRecommendedPlaylists", cacheDuration: 0, params: [] },
     { id: "hot", title: "热歌榜", functionName: "loadHot", cacheDuration: 300, params: [] },
     { id: "playlists", title: "我的歌单", functionName: "loadMyPlaylists", cacheDuration: 0, params: [
