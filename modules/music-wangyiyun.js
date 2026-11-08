@@ -1,7 +1,7 @@
 WidgetMetadata = {
   id: "mlitm.netease.account",
   title: "网易云音乐 · 我的音乐",
-  version: "1.1.5",
+  version: "1.1.6",
   requiredVersion: "0.0.1",
   description: "账号歌单、每日推荐、推荐歌单、心动模式与热歌榜，按账号权限在线播放。",
   author: "mlitm",
@@ -579,7 +579,7 @@ async function ncmPlayback(id, config) {
 
 async function loadResource(params) {
   var p = params || {}, route = ncmLink(p.link != null ? p.link : p.id);
-  if (!route || route.kind === "playlist") return [];
+  if (!route) return [];
   var episode = route.episode || (/^[1-9]\d*$/.test(String(p.episode)) ? Number(p.episode) : 0);
   if (route.kind !== "song" && (!Number.isSafeInteger(episode) || episode < 1 ||
       (p.season != null && String(p.season) !== "1"))) return [];
@@ -587,12 +587,28 @@ async function loadResource(params) {
     var config = ncmConfig(p);
     var profile = await ncmProfile(config), id = route.id;
     if (route.kind !== "song") {
+      var queue;
+      if (route.kind === "playlist") {
+        var data = await ncmApi("/v6/playlist/detail", { id: route.id, n: 1 }, config);
+        var list = data.playlist;
+        if (!list || String(list.id) !== route.id) ncmFail("歌单不存在或账号没有访问权限");
+        var tracks = list.trackIds || list.tracks || [];
+        if (!list.trackIds && Number(list.trackCount) > tracks.length) ncmFail("网易云未返回完整歌单索引，请稍后重试");
+        id = tracks[episode - 1] && String(tracks[episode - 1].id);
+        if (!ncmId(id)) ncmFail("当前歌单没有这一集，请返回歌单重新选择");
+        return [await ncmPlayback(id, config)];
+      }
       if (route.kind === "queue") {
         ncmMigrateHeartAliases(profile);
         var aliases = ncmStoredObject(NCM_HEART_ALIASES);
-        if (((aliases.users || {})[String(profile.userId)] || []).indexOf(route.id) < 0) return [];
+        if (((aliases.users || {})[String(profile.userId)] || []).indexOf(route.id) < 0) {
+          queue = ncmReadQueues().filter(function (q) {
+            return q.id === route.id && q.userId === String(profile.userId) && Date.now() - q.created < 86400000;
+          })[0];
+          if (!queue) ncmFail("推荐队列已过期，请返回模块重新获取");
+        }
       }
-      var queue = await ncmCurrentHeart(config, profile);
+      queue = queue || await ncmCurrentHeart(config, profile);
       id = queue.ids[episode - 1];
       if (!id) ncmFail("当前心动列表没有这一集，请返回心动模式重新选择");
     }

@@ -180,9 +180,13 @@ async function main() {
   }
   await assert.rejects(context.loadResource({ link: 'ncm:heart:146' }), /没有这一集/);
   const playerCalls = calls.filter(c => c.url.endsWith('/song/enhance/player/url/v1')).length;
-  assert.equal((await context.loadResource({ link: daily.link, episode: 1 })).length, 0);
-  assert.equal((await context.loadResource({ link: 'ncm:queue:unknown-heart', episode: 1, seriesName: '心动模式' })).length, 0);
-  assert.equal(calls.filter(c => c.url.endsWith('/song/enhance/player/url/v1')).length, playerCalls);
+  assert.match((await context.loadResource({ link: daily.link, episode: 2, season: 1 }))[0].url, /audio-20\.mp3/);
+  assert.equal(calls.filter(c => c.url.endsWith('/song/enhance/player/url/v1')).at(-1).options.params.ids, '[20]');
+  assert.match((await context.loadResource({ link: 'ncm:playlist:42:100', episode: 108, season: 1 }))[0].url, /audio-108\.mp3/);
+  assert.equal(calls.filter(c => c.url.endsWith('/song/enhance/player/url/v1')).at(-1).options.params.ids, '[108]');
+  await assert.rejects(context.loadResource({ link: 'ncm:playlist:42', episode: 206 }), /没有这一集/);
+  await assert.rejects(context.loadResource({ link: 'ncm:queue:unknown-heart', episode: 1, seriesName: '心动模式' }), /队列已过期/);
+  assert.equal(calls.filter(c => c.url.endsWith('/song/enhance/player/url/v1')).length, playerCalls + 2);
   assert.equal(calls.filter(c => c.url.endsWith('/playmode/intelligence/list')).length, heartRequests + 1);
   assert.equal(context.ncmBeijingDay, undefined);
   clock += 1;
@@ -211,7 +215,7 @@ async function main() {
   accountUser = 99;
   await assert.rejects(context.loadDetail(retryHeart.link), /未找到我喜欢/);
   await assert.rejects(context.loadDetail('ncm:queue:legacy-recent'), /队列已过期/);
-  assert.equal((await context.loadResource({ link: 'ncm:queue:legacy-recent', episode: 1 })).length, 0);
+  await assert.rejects(context.loadResource({ link: 'ncm:queue:legacy-recent', episode: 1 }), /队列已过期/);
   accountUser = 88;
   sent = calls.find(c => c.url.endsWith('/playmode/intelligence/list'));
   assert.equal(sent.options.params.playlistId, '42');
