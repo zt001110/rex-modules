@@ -24,6 +24,9 @@ const context = vm.createContext({ console, Date: TestDate, Widget: {
     calls.push({ url, options });
     const q = options.params;
     let body;
+    if (/\/mv\/(toplist|all|first)$/.test(url)) return { data: { code: 200, data: [{ id: 777, name: 'MV Test', cover: 'http://p1.music.126.net/mv.jpg' }] } };
+    if (url.endsWith('/v1/mv/detail')) return { data: { code: 200, data: { id: 777, name: 'MV Test' } } };
+    if (url.endsWith('/song/enhance/play/mv/url')) return { data: { code: 200, data: { id: wrongId ? 999 : 777, url: denied ? null : 'http://vod.126.net/mv.mp4', r: 1080 } } };
     if (url.endsWith('/nuser/account/get')) body = expired ? { code: 200, profile: null } : { code: 200, profile: { userId: accountUser, nickname: 'Test' } };
     else if (url.endsWith('/user/playlist')) body = { code: 200, playlist: userPlaylists };
     else if (url.endsWith('/song/like/get')) body = { code: 200, ids: Array.from({ length: 105 }, (_, i) => i + 1) };
@@ -48,7 +51,21 @@ vm.runInContext(fs.readFileSync(target, 'utf8'), context);
 async function main() {
   assert.equal(context.WidgetMetadata.id, 'mlitm.netease.account');
   assert.deepEqual(Array.from(context.WidgetMetadata.modules.filter(m => !m.type), m => m.id),
-    ['playlists', 'recommended', 'daily', 'hot', 'account']);
+    ['playlists', 'recommended', 'daily', 'hot', 'mvTop', 'mvLibrary', 'mvLatest', 'account']);
+  for (const fn of ['loadMvTop', 'loadMvLibrary', 'loadMvLatest']) {
+    assert.equal((await context[fn]({ page: 2 }))[0].link, 'ncm:mv:777');
+  }
+  assert.equal(calls.find(c => c.url.endsWith('/mv/toplist')).options.params.offset, 30);
+  await context.loadMvLibrary({ area: '日本', mvType: '现场版', order: '最新' });
+  assert.equal(calls.filter(c => c.url.endsWith('/mv/all')).at(-1).options.params.type, '现场版');
+  assert.equal(calls.find(c => c.url.endsWith('/mv/first')).options.params.area, undefined);
+  assert.equal((await context.loadDetail('ncm:mv:777')).videoUrl, 'https://vod.126.net/mv.mp4');
+  assert.equal((await context.loadResource({ link: 'ncm:mv:777' }))[0].url, 'https://vod.126.net/mv.mp4');
+  wrongId = true;
+  await assert.rejects(context.loadResource({ link: 'ncm:mv:777' }), /暂无可播放/);
+  wrongId = false; denied = true;
+  await assert.rejects(context.loadResource({ link: 'ncm:mv:777' }), /暂无可播放/);
+  denied = false;
   for (const m of context.WidgetMetadata.modules) assert.equal(typeof context[m.functionName], 'function');
   await assert.rejects(context.loadAccount({}), /Cookie/);
   const cookie = 'MUSIC_U=fixture-only; __csrf=fixture-csrf';

@@ -1,7 +1,7 @@
 WidgetMetadata = {
   id: "mlitm.netease.account",
   title: "网易云音乐 · 我的音乐",
-  version: "1.1.8",
+  version: "1.1.9",
   requiredVersion: "0.0.1",
   description: "账号歌单、每日推荐、推荐歌单、心动模式与热歌榜，按账号权限在线播放。",
   author: "mlitm",
@@ -22,6 +22,16 @@ WidgetMetadata = {
     { id: "recommended", title: "推荐歌单", functionName: "loadRecommendedPlaylists", cacheDuration: 0, params: [] },
     { id: "daily", title: "每日推荐", functionName: "loadDaily", cacheDuration: 0, params: [] },
     { id: "hot", title: "热歌榜", functionName: "loadHot", cacheDuration: 300, params: [] },
+    { id: "mvTop", title: "MV榜单", functionName: "loadMvTop", cacheDuration: 300, params: [
+      { name: "page", title: "页码", type: "page" }
+    ] },
+    { id: "mvLibrary", title: "MV片库", functionName: "loadMvLibrary", cacheDuration: 300, params: [
+      { name: "area", title: "地区", type: "enumeration", value: "全部", enumOptions: ["全部", "内地", "港台", "欧美", "日本", "韩国"].map(function (v) { return { title: v, value: v }; }) },
+      { name: "mvType", title: "类型", type: "enumeration", value: "全部", enumOptions: ["全部", "官方版", "原生", "现场版", "网易出品"].map(function (v) { return { title: v, value: v }; }) },
+      { name: "order", title: "排序", type: "enumeration", value: "上升最快", enumOptions: ["上升最快", "最热", "最新"].map(function (v) { return { title: v, value: v }; }) },
+      { name: "page", title: "页码", type: "page" }
+    ] },
+    { id: "mvLatest", title: "最新MV", functionName: "loadMvLatest", cacheDuration: 300, params: [] },
     { id: "loadResource", title: "网易云账号播放", functionName: "loadResource", type: "stream", cacheDuration: 0, params: [] },
     { id: "account", title: "账号状态", functionName: "loadAccount", cacheDuration: 0, params: [
       { name: "action", title: "账号操作", type: "enumeration", value: "status", enumOptions: [
@@ -115,6 +125,8 @@ function ncmPage(p) {
 }
 function ncmCover(url) { return String(url || "").replace(/^http:/, "https:"); }
 function ncmLink(raw) {
+  var mv = /^ncm:mv:([1-9]\d*)$/.exec(String(raw || ""));
+  if (mv) return { kind: "mv", id: mv[1] };
   if (raw === "ncm:heart") return { kind: "heart" };
   var heart = /^ncm:heart:([1-9]\d*)$/.exec(String(raw || ""));
   if (heart) {
@@ -510,6 +522,13 @@ async function loadDetail(link) {
   if (!route) return null;
   return ncmGuard(async function () {
     var config = ncmRead();
+    if (route.kind === "mv") {
+      var data = await ncmApi("/v1/mv/detail", { id: route.id }, config);
+      if (!data.data || String(data.data.id) !== route.id) ncmFail("MV 不存在或无法访问");
+      var mv = ncmMv(data.data);
+      ncmAttachPlayback(mv, await ncmMvPlayback(route.id, config));
+      return mv;
+    }
     var profile = await ncmProfile(config);
     if (route.kind === "heart") {
       if (!route.episode) return ncmHeartDetail(config, profile);
@@ -573,10 +592,11 @@ async function loadResource(params) {
   var p = params || {}, route = ncmLink(p.link != null ? p.link : p.id);
   if (!route) return [];
   var episode = route.episode || (/^[1-9]\d*$/.test(String(p.episode)) ? Number(p.episode) : 0);
-  if (route.kind !== "song" && (!Number.isSafeInteger(episode) || episode < 1 ||
+  if (route.kind !== "song" && route.kind !== "mv" && (!Number.isSafeInteger(episode) || episode < 1 ||
       (p.season != null && String(p.season) !== "1"))) return [];
   return ncmGuard(async function () {
     var config = ncmConfig(p);
+    if (route.kind === "mv") return [await ncmMvPlayback(route.id, config)];
     var profile = await ncmProfile(config), id = route.id;
     if (route.kind !== "song") {
       var queue;
@@ -606,4 +626,41 @@ async function loadResource(params) {
     }
     return [await ncmPlayback(id, config)];
   });
+}
+
+function ncmMv(mv) {
+  var link = "ncm:mv:" + mv.id, cover = ncmCover(mv.cover || mv.imgurl);
+  return { id: link, link: link, type: "url", mediaType: "movie", title: mv.name || "MV " + mv.id,
+    coverUrl: cover, posterPath: cover, backdropPath: cover, playerType: "app",
+    description: [mv.artistName, mv.desc || mv.briefDesc].filter(Boolean).join(" · "),
+    duration: Math.round(Number(mv.duration || 0) / 1000), releaseDate: mv.publishTime || "" };
+}
+
+async function ncmMvList(path, query, params) {
+  return ncmGuard(async function () {
+    var data = await ncmApi(path, query, ncmConfig(params));
+    return (data.data || []).filter(function (mv) { return ncmId(mv.id); }).map(ncmMv);
+  });
+}
+
+async function loadMvTop(params) {
+  return ncmMvList("/mv/toplist", { limit: 30, offset: (ncmPage(params) - 1) * 30, total: true }, params);
+}
+
+async function loadMvLibrary(params) {
+  var p = params || {};
+  return ncmMvList("/mv/all", { limit: 30, offset: (ncmPage(p) - 1) * 30,
+    area: p.area || "全部", type: p.mvType || "全部", order: p.order || "上升最快" }, p);
+}
+
+async function loadMvLatest(params) {
+  return ncmMvList("/mv/first", { limit: 30 }, params);
+}
+
+async function ncmMvPlayback(id, config) {
+  var data = await ncmApi("/song/enhance/play/mv/url", { id: id, r: 1080 }, config);
+  var mv = data.data;
+  if (!mv || String(mv.id) !== id || !/^https?:\/\//i.test(mv.url || "")) ncmFail("当前 MV 暂无可播放资源，请检查账号权限或地区版权");
+  return { name: "MV · " + (mv.r || "默认"), url: ncmCover(mv.url),
+    customHeaders: { Referer: NCM_SITE + "/", "User-Agent": "Mozilla/5.0" }, playerType: "app" };
 }
