@@ -8,6 +8,7 @@ let expired = false, trial = false, denied = false, wrongId = false;
 let accountUser = 88;
 let clock = Date.parse('2026-11-08T15:59:59.999Z');
 let emptyHeart = false;
+let heartBase = 500;
 class TestDate extends Date {
   constructor(...args) { super(...(args.length ? args : [clock])); }
   static now() { return clock; }
@@ -31,7 +32,7 @@ const context = vm.createContext({ console, Date: TestDate, Widget: {
     else if (url.endsWith('/search/get')) body = { code: 200, result: { songs: [song(444)] } };
     else if (url.endsWith('/v1/discovery/recommend/resource')) body = { code: 200, recommend: [playlist] };
     else if (url.endsWith('/v3/discovery/recommend/songs')) body = { code: 200, data: { dailySongs: [song(10), song(20), song(10)] } };
-    else if (url.endsWith('/playmode/intelligence/list')) body = { code: 200, data: emptyHeart ? [] : Array.from({ length: 145 }, (_, i) => ({ songInfo: song(500 + i) })) };
+    else if (url.endsWith('/playmode/intelligence/list')) body = { code: 200, data: emptyHeart ? [] : Array.from({ length: 145 }, (_, i) => ({ songInfo: song(heartBase + i) })) };
     else if (url.endsWith('/toplist')) body = { code: 200, list: [{ ...playlist, name: '云音乐热歌榜' }, { ...playlist, name: '飙升榜' }] };
     else if (url.endsWith('/song/enhance/player/url/v1')) body = { code: 200, data: JSON.parse(q.ids).map(id => ({
       id: wrongId ? 999 : id, url: denied ? null : 'http://m7.music.126.net/audio-' + id + '.mp3?signature=fixture',
@@ -125,50 +126,67 @@ async function main() {
   assert.equal(queue.episodeItems[0].link, 'ncm:song:333');
   await assert.rejects(context.loadRoam({ mode: 'invalid' }), /模式无效/);
   await assert.rejects(context.loadRoam({ mode: 'SCENE_RCMD', scene: 'invalid' }), /场景无效/);
+  const legacyHeart = { id: 'legacy-recent', userId: '88', created: clock,
+    title: '心动模式', cover: '', ids: ['12'] };
+  const legacyCached = { ...legacyHeart, id: 'legacy-cached', ids: ['13'] };
+  storage.set('ncm.queues.v1', JSON.stringify([...JSON.parse(storage.get('ncm.queues.v1')), legacyHeart]));
+  storage.set('ncm.heart.daily.v1', JSON.stringify({ userId: '88', day: '2026-11-08', queues: { seed: legacyCached } }));
   const heart = (await context.loadHeart({}))[0];
+  assert.equal(heart.id, 'ncm:heart');
+  assert.equal(heart.link, 'ncm:heart');
+  assert.equal(storage.has('ncm.heart.daily.v1'), false);
+  assert.equal((await context.loadDetail('ncm:queue:legacy-recent')).id, heart.id);
+  assert.equal((await context.loadDetail('ncm:queue:legacy-cached:100')).episodeItems[0].link, 'ncm:song:500');
   let heartRequests = calls.filter(c => c.url.endsWith('/playmode/intelligence/list')).length;
+  heartBase = 700;
   assert.equal((await context.loadHeart({}))[0].link, heart.link);
-  assert.equal(calls.filter(c => c.url.endsWith('/playmode/intelligence/list')).length, heartRequests);
-  assert.equal(context.ncmBeijingDay(clock), '2026-11-08');
+  assert.equal(calls.filter(c => c.url.endsWith('/playmode/intelligence/list')).length, heartRequests + 1);
+  assert.equal((await context.loadDetail(heart.link)).episodeItems[0].link, 'ncm:song:700');
+  assert.equal((await context.loadDetail('ncm:queue:legacy-recent')).episodeItems[0].link, 'ncm:song:700');
+  assert.equal(calls.filter(c => c.url.endsWith('/playmode/intelligence/list')).length, heartRequests + 1);
+  assert.equal(context.ncmBeijingDay, undefined);
   clock += 1;
-  assert.equal(context.ncmBeijingDay(clock), '2026-11-09');
   const nextDayHeart = (await context.loadHeart({}))[0];
-  assert.notEqual(nextDayHeart.link, heart.link);
-  assert.equal(calls.filter(c => c.url.endsWith('/playmode/intelligence/list')).length, heartRequests + 1);
-  assert.equal((await context.loadHeart({}))[0].link, nextDayHeart.link);
-  assert.equal(calls.filter(c => c.url.endsWith('/playmode/intelligence/list')).length, heartRequests + 1);
-  assert.equal((await context.loadDetail(heart.link)).episodeItems[0].link, 'ncm:song:500');
+  assert.equal(nextDayHeart.id, heart.id);
+  assert.equal(calls.filter(c => c.url.endsWith('/playmode/intelligence/list')).length, heartRequests + 2);
   const otherSeedHeart = (await context.loadHeart({ playlistId: '42', songId: '2' }))[0];
-  assert.notEqual(otherSeedHeart.link, nextDayHeart.link);
-  assert.equal((await context.loadHeart({ playlistId: '42', songId: '2' }))[0].link, otherSeedHeart.link);
-  assert.equal((await context.loadHeart({}))[0].link, nextDayHeart.link);
+  assert.equal(otherSeedHeart.id, heart.id);
+  sent = calls.filter(c => c.url.endsWith('/playmode/intelligence/list')).at(-1);
+  assert.equal(sent.options.params.songId, '2');
+  assert.equal(sent.options.params.startMusicId, '2');
   for (let i = 0; i < 13; i++) await context.loadRoam({});
   assert.equal(JSON.parse(storage.get('ncm.queues.v1')).length, 12);
-  assert.equal((await context.loadDetail(nextDayHeart.link)).episodeItems[0].link, 'ncm:song:500');
+  assert.equal((await context.loadDetail('ncm:queue:legacy-recent')).episodeItems[0].link, 'ncm:song:700');
   expired = true;
   await assert.rejects(context.loadHeart({}), /未识别登录/);
   expired = false;
   clock += 86400000;
   emptyHeart = true;
   await assert.rejects(context.loadHeart({}), /暂未返回歌曲/);
+  assert.equal((await context.loadDetail(heart.link)).episodeItems[0].link, 'ncm:song:700');
   emptyHeart = false;
   heartRequests = calls.filter(c => c.url.endsWith('/playmode/intelligence/list')).length;
   const retryHeart = (await context.loadHeart({}))[0];
   assert.equal(calls.filter(c => c.url.endsWith('/playmode/intelligence/list')).length, heartRequests + 1);
   accountUser = 99;
-  await assert.rejects(context.loadDetail(retryHeart.link), /队列已过期/);
+  await assert.rejects(context.loadDetail(retryHeart.link), /未找到我喜欢/);
+  await assert.rejects(context.loadDetail('ncm:queue:legacy-recent'), /队列已过期/);
   accountUser = 88;
   sent = calls.find(c => c.url.endsWith('/playmode/intelligence/list'));
   assert.equal(sent.options.params.playlistId, '42');
   assert.equal(sent.options.params.songId, '1');
   assert.equal(sent.options.params.startMusicId, '1');
   queue = await context.loadDetail((await context.loadHeart({}))[0].link);
-  assert.equal(queue.episodeItems.length, 100);
-  assert.equal(queue.episodeItems[0].link, 'ncm:song:500');
-  queue = await context.loadDetail(queue.relatedItems[0].link);
-  assert.equal(queue.episodeItems.length, 45);
-  assert.equal(queue.episodeItems[0].link, 'ncm:song:600');
-  assert.equal(queue.episodeItems[0].episode, 101);
+  assert.equal(queue.episodeItems.length, 145);
+  assert.equal(queue.episodeItems[0].link, 'ncm:song:700');
+  assert.equal(queue.episodeItems[100].link, 'ncm:song:800');
+  assert.equal(queue.episodeItems[100].episode, 101);
+  assert.equal(queue.relatedItems.length, 0);
+  assert.match(queue.episodeItems[144].videoUrl, /audio-844\.mp3/);
+  storage.delete('ncm.heart.current.v1');
+  heartRequests = calls.filter(c => c.url.endsWith('/playmode/intelligence/list')).length;
+  assert.equal((await context.loadDetail(heart.link)).id, heart.id);
+  assert.equal(calls.filter(c => c.url.endsWith('/playmode/intelligence/list')).length, heartRequests + 1);
   const heartCalls = calls.filter(c => c.url.endsWith('/playmode/intelligence/list')).length;
   await assert.rejects(context.loadHeart({ playlistId: '42', songId: '999' }), /不在所选歌单/);
   assert.equal(calls.filter(c => c.url.endsWith('/playmode/intelligence/list')).length, heartCalls);
@@ -183,7 +201,7 @@ async function main() {
   for (const p of [{}, { id: 550 }, { id: 'tt1234' }, { link: 'other:1' },
     { link: 'https://evil.test/ncm:song:1' }, { link: 'https://music.163.com.evil.test/song?id=1' },
     { link: 'ncm:song:1:2' }, { link: 'ncm:song:0' }, { link: 'ncm:playlist:42' },
-    { link: daily.link }, { link: 'ncm:queue:bad' },
+    { link: daily.link }, { link: heart.link }, { link: 'ncm:queue:bad' },
     { link: '', id: 'ncm:song:1' }, { videoUrl: 'https://evil.test/a.mp3' },
     { link: 'invalid', id: 'ncm:song:1' }]) {
     const before = calls.length;
@@ -221,6 +239,6 @@ async function main() {
   assert.equal(sent.options.headers.Cookie, 'MUSIC_U=' + bareMusicU + '; os=pc');
   assert.equal((await context.loadLiked({ page: 1 })).length, 100);
   assert.ok(calls.every(c => c.url.startsWith('https://music.163.com/api/')));
-  console.log('PASS: account, queue playback, recommendations, roam, heart seeds/paging, Beijing midnight rollover, same-day cache, cache retention/retry, account isolation and playback rights');
+  console.log('PASS: account, queue playback, recommendations, heart refresh/stable identity, latest-list history aliases, full heart list, failed refresh retention, source/account isolation and playback rights');
 }
 main().catch(error => { console.error(error); process.exitCode = 1; });

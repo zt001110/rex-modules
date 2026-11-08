@@ -1,7 +1,7 @@
 WidgetMetadata = {
   id: "mlitm.netease.account",
   title: "网易云音乐 · 我的音乐",
-  version: "1.1.1",
+  version: "1.1.2",
   requiredVersion: "0.0.1",
   description: "账号歌单、每日推荐、推荐歌单、漫游、心动模式与热歌榜，按账号权限在线播放。",
   author: "mlitm",
@@ -65,6 +65,8 @@ var NCM_SITE = "https://music.163.com";
 var NCM_STORAGE = "ncm.account.v1";
 var NCM_QUEUES = "ncm.queues.v1";
 var NCM_HEART_CACHE = "ncm.heart.daily.v1";
+var NCM_HEART_CURRENT = "ncm.heart.current.v1";
+var NCM_HEART_ALIASES = "ncm.heart.aliases.v1";
 var NCM_PAGE = 100;
 
 function ncmRead() {
@@ -139,6 +141,7 @@ function ncmPage(p) {
 }
 function ncmCover(url) { return String(url || "").replace(/^http:/, "https:"); }
 function ncmLink(raw) {
+  if (raw === "ncm:heart") return { kind: "heart" };
   var queue = /^ncm:queue:([a-z0-9]+-[a-z0-9]+)(?::(0|[1-9]\d*))?$/.exec(String(raw || ""));
   if (queue) {
     var queueOffset = Number(queue[2] || 0);
@@ -186,6 +189,8 @@ async function loadAccount(params) {
       Widget.storage.remove(NCM_STORAGE);
       Widget.storage.remove(NCM_QUEUES);
       Widget.storage.remove(NCM_HEART_CACHE);
+      Widget.storage.remove(NCM_HEART_CURRENT);
+      Widget.storage.remove(NCM_HEART_ALIASES);
       return [{ id: "ncm:status", type: "url", title: "本模块登录缓存已清除", description: "请同时清空模块全局参数中的 Cookie。" }];
     }
     var profile = await ncmProfile(ncmConfig(params));
@@ -203,13 +208,13 @@ function ncmReadQueues() {
 }
 
 function ncmQueueItem(queue, offset) {
-  var link = "ncm:queue:" + queue.id + (offset ? ":" + offset : "");
+  var link = queue.kind === "heart" ? "ncm:heart" : "ncm:queue:" + queue.id + (offset ? ":" + offset : "");
   return { id: link, link: link, type: "url", mediaType: "tv", title: queue.title,
     coverUrl: queue.cover, posterPath: queue.cover, backdropPath: queue.cover,
     description: queue.ids.length + " 首" };
 }
 
-function ncmSaveQueue(title, songs, profile) {
+function ncmMakeQueue(title, songs, profile, id) {
   var seen = {}, unique = songs.filter(function (song) {
     if (!song || !ncmId(song.id) || seen[String(song.id)]) return false;
     seen[String(song.id)] = true;
@@ -217,10 +222,15 @@ function ncmSaveQueue(title, songs, profile) {
   });
   if (!unique.length) ncmFail(title + "暂未返回歌曲，请稍后刷新");
   var now = Date.now(), queue = {
-    id: now.toString(36) + "-" + Math.random().toString(36).slice(2, 10),
+    id: id || now.toString(36) + "-" + Math.random().toString(36).slice(2, 10),
     userId: String(profile.userId), created: now, title: title,
     cover: ncmSong(unique[0]).coverUrl, ids: unique.map(function (s) { return String(s.id); })
   };
+  return queue;
+}
+
+function ncmSaveQueue(title, songs, profile) {
+  var queue = ncmMakeQueue(title, songs, profile), now = Date.now();
   var queues = ncmReadQueues().filter(function (q) {
     return q.userId === queue.userId && now - q.created < 86400000;
   }).slice(-11);
@@ -271,10 +281,6 @@ async function loadHeart(params) {
     var playlistId = String(p.playlistId || "").trim(), songId = String(p.songId || "").trim();
     if (playlistId && !ncmId(playlistId)) ncmFail("种子歌单 ID 无效");
     if (songId && !ncmId(songId)) ncmFail("种子歌曲 ID 无效");
-    var day = ncmBeijingDay(Date.now());
-    var cache = ncmReadHeartCache(profile.userId, day);
-    var cacheKey = "seed:" + playlistId + ":" + songId;
-    if (cache.queues[cacheKey]) return [ncmQueueItem(cache.queues[cacheKey])];
     if (!playlistId) {
       var lists = await ncmApi("/user/playlist", { uid: profile.userId, limit: 100, offset: 0 }, config);
       var liked = (lists.playlist || []).filter(function (list) {
@@ -292,24 +298,55 @@ async function loadHeart(params) {
     var data = await ncmApi("/playmode/intelligence/list", {
       songId: songId, startMusicId: songId, playlistId: playlistId, type: "fromPlayOne", count: 30
     }, config);
-    var items = ncmSaveQueue("心动模式", (data.data || []).map(function (entry) { return entry.songInfo; }), profile);
-    var queueId = ncmLink(items[0].link).id;
-    cache.queues[cacheKey] = ncmReadQueues().filter(function (queue) { return queue.id === queueId; })[0];
-    Widget.storage.set(NCM_HEART_CACHE, JSON.stringify(cache));
-    return items;
+    var queue = ncmMakeQueue("心动模式", (data.data || []).map(function (entry) { return entry.songInfo; }), profile, "heart");
+    queue.kind = "heart";
+    ncmMigrateHeartAliases(profile);
+    Widget.storage.set(NCM_HEART_CURRENT, JSON.stringify(queue));
+    Widget.storage.remove(NCM_HEART_CACHE);
+    return [ncmQueueItem(queue)];
   });
 }
 
-function ncmBeijingDay(time) {
-  return new Date(time + 8 * 3600000).toISOString().slice(0, 10);
+function ncmStoredObject(key) {
+  var raw = Widget.storage.get(key);
+  try {
+    var object = typeof raw === "string" ? JSON.parse(raw) : raw;
+    return object && typeof object === "object" && !Array.isArray(object) ? object : {};
+  } catch (_) { return {}; }
 }
 
-function ncmReadHeartCache(userId, day) {
-  var raw = Widget.storage.get(NCM_HEART_CACHE), cache;
-  try { cache = typeof raw === "string" ? JSON.parse(raw) : raw; } catch (_) {}
-  if (cache && cache.userId === String(userId) && (!day || cache.day === day) &&
-      cache.queues && typeof cache.queues === "object" && !Array.isArray(cache.queues)) return cache;
-  return { userId: String(userId), day: day, queues: {} };
+function ncmMigrateHeartAliases(profile) {
+  var userId = String(profile.userId), aliases = ncmStoredObject(NCM_HEART_ALIASES);
+  if (!aliases.users || typeof aliases.users !== "object" || Array.isArray(aliases.users)) aliases.users = {};
+  var ids = Array.isArray(aliases.users[userId]) ? aliases.users[userId] : [];
+  var cache = ncmStoredObject(NCM_HEART_CACHE), queues = ncmReadQueues();
+  if (cache.userId === userId && cache.queues) {
+    queues = queues.concat(Object.keys(cache.queues).map(function (key) { return cache.queues[key]; }));
+  }
+  queues.forEach(function (queue) {
+    if (queue && queue.userId === userId && queue.title === "心动模式" && ids.indexOf(queue.id) < 0) ids.push(queue.id);
+  });
+  aliases.users[userId] = ids;
+  Widget.storage.set(NCM_HEART_ALIASES, JSON.stringify(aliases));
+}
+
+async function ncmHeartDetail(config, profile) {
+  var queue = ncmStoredObject(NCM_HEART_CURRENT);
+  if (queue.userId !== String(profile.userId) || !Array.isArray(queue.ids) || !queue.ids.length) {
+    await loadHeart({});
+    queue = ncmStoredObject(NCM_HEART_CURRENT);
+  }
+  var item = ncmQueueItem(queue);
+  item.episodeItems = [];
+  // A single heart identity includes every song, so page changes do not create extra history cards.
+  for (var offset = 0; offset < queue.ids.length; offset += NCM_PAGE) {
+    var songs = await ncmSongs(queue.ids.slice(offset, offset + NCM_PAGE), config);
+    songs.forEach(function (song) { song.episode = queue.ids.indexOf(ncmLink(song.link).id) + 1; });
+    await ncmFillEpisodePlayback(songs, config);
+    item.episodeItems = item.episodeItems.concat(songs);
+  }
+  item.relatedItems = [];
+  return item;
 }
 
 async function loadHot(params) {
@@ -397,9 +434,12 @@ function ncmPageNeighbors(item, total, offset, makeItem) {
 }
 
 async function ncmQueueDetail(route, config, profile) {
-  // Keep today's heart queues available even after other recommendations rotate the recent list.
-  var heartQueues = ncmReadHeartCache(profile.userId).queues;
-  var queues = ncmReadQueues().concat(Object.keys(heartQueues).map(function (key) { return heartQueues[key]; }));
+  ncmMigrateHeartAliases(profile);
+  var aliases = ncmStoredObject(NCM_HEART_ALIASES);
+  if (((aliases.users || {})[String(profile.userId)] || []).indexOf(route.id) >= 0) {
+    return ncmHeartDetail(config, profile);
+  }
+  var queues = ncmReadQueues();
   var queue = queues.filter(function (q) {
     return q.id === route.id && q.userId === String(profile.userId) && Date.now() - q.created < 86400000;
   })[0];
@@ -437,6 +477,7 @@ async function loadDetail(link) {
   return ncmGuard(async function () {
     var config = ncmRead();
     var profile = await ncmProfile(config);
+    if (route.kind === "heart") return ncmHeartDetail(config, profile);
     if (route.kind === "playlist") return ncmPlaylistDetail(route, config);
     if (route.kind === "queue") return ncmQueueDetail(route, config, profile);
     var items = await ncmSongs([route.id], config);
