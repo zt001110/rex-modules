@@ -9,7 +9,6 @@ let accountUser = 88;
 let clock = Date.parse('2026-11-08T15:59:59.999Z');
 let emptyHeart = false;
 let heartBase = 500;
-let downgrade = false;
 class TestDate extends Date {
   constructor(...args) { super(...(args.length ? args : [clock])); }
   static now() { return clock; }
@@ -41,7 +40,7 @@ const context = vm.createContext({ console, Date: TestDate, Widget: {
     else if (url.endsWith('/toplist')) body = { code: 200, list: [{ ...playlist, name: '云音乐热歌榜' }, { ...playlist, name: '飙升榜' }] };
     else if (url.endsWith('/song/enhance/player/url/v1')) body = { code: 200, data: JSON.parse(q.ids).map(id => ({
       id: wrongId ? 999 : id, url: denied ? null : 'http://m7.music.126.net/audio-' + id + '.mp3?signature=fixture',
-      fee: 1, freeTrialInfo: trial ? { start: 0, end: 30 } : null, level: downgrade ? 'standard' : q.level, br: 320000
+      fee: 1, freeTrialInfo: trial ? { start: 0, end: 30 } : null, level: q.level, br: 320000
     })).reverse() };
     else throw Error('Unmocked request');
     return { statusCode: 200, data: JSON.stringify(body) };
@@ -119,17 +118,10 @@ async function main() {
   assert.equal(resources[0].customHeaders['X-Forward-Skip-Redirect-Probe'], undefined);
   assert.equal(resources[0].customHeaders.Cookie, undefined);
   assert.equal(resources[0].playerType, 'app');
-  downgrade = true;
-  const fallback = await context.loadResource({ link: 'ncm:song:101' });
-  assert.equal(fallback.length, 1);
-  assert.equal(fallback[0].name, '网易云 · 标准');
-  assert.match(fallback[0].description, /^720p/);
-  downgrade = false;
   sent = calls.filter(c => c.url.endsWith('/song/enhance/player/url/v1')).at(-1);
   assert.equal(sent.options.params.ids, '[101]');
-  assert.deepEqual(Array.from(resources, r => r.name), ['网易云 · 无损', '网易云 · 极高', '网易云 · 标准']);
-  assert.deepEqual(Array.from(resources, r => r.description.split(' | ')[0]), ['4k', '1080p', '720p']);
-  assert.equal(calls.filter(c => c.url.endsWith('/song/enhance/player/url/v1') && c.options.params.level === 'lossless').at(-1).options.params.encodeType, 'flac');
+  assert.equal(sent.options.params.level, 'lossless');
+  assert.equal(sent.options.params.encodeType, 'flac');
   assert.equal(sent.options.headers.Cookie, cookie + '; os=pc');
   await context.loadResource({ link: 'ncm:song:101', cookie: cookie + '; os=android' });
   sent = calls.filter(c => c.url.endsWith('/song/enhance/player/url/v1')).at(-1);
@@ -211,7 +203,7 @@ async function main() {
   assert.equal(calls.filter(c => c.url.endsWith('/song/enhance/player/url/v1')).at(-1).options.params.ids, '[108]');
   await assert.rejects(context.loadResource({ link: 'ncm:playlist:42', episode: 206 }), /没有这一集/);
   await assert.rejects(context.loadResource({ link: 'ncm:queue:unknown-heart', episode: 1, seriesName: '心动模式' }), /队列已过期/);
-  assert.equal(calls.filter(c => c.url.endsWith('/song/enhance/player/url/v1')).length, playerCalls + 6);
+  assert.equal(calls.filter(c => c.url.endsWith('/song/enhance/player/url/v1')).length, playerCalls + 2);
   assert.equal(calls.filter(c => c.url.endsWith('/playmode/intelligence/list')).length, heartRequests + 1);
   assert.equal(context.ncmBeijingDay, undefined);
   clock += 1;

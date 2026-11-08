@@ -1,7 +1,7 @@
 WidgetMetadata = {
   id: "mlitm.netease.account",
   title: "网易云音乐 · 我的音乐",
-  version: "1.2.0",
+  version: "1.2.1",
   requiredVersion: "0.0.1",
   description: "账号歌单、每日推荐、推荐歌单、心动模式与热歌榜，按账号权限在线播放。",
   author: "mlitm",
@@ -588,32 +588,6 @@ async function ncmPlayback(id, config) {
   return ncmTrackResource(tracks[id], config.quality || "standard");
 }
 
-async function ncmPlaybackOptions(id, config) {
-  var levels = [config.quality || "standard", "lossless", "exhigh", "standard"];
-  levels = levels.filter(function (level, i) { return levels.indexOf(level) === i; });
-  var results = await Promise.all(levels.map(async function (level) {
-    try {
-      var tracks = await ncmPlaybackTracks([id], Object.assign({}, config, { quality: level }));
-      var track = tracks[id], resource = ncmTrackResource(track, level);
-      var actual = track.level;
-      var labels = { standard: ["标准", "720p"], exhigh: ["极高", "1080p"], lossless: ["无损", "4k"] };
-      var label = labels[actual];
-      resource.name = "网易云 · " + (label ? label[0] : actual || "默认音质");
-      resource.description = (label ? label[1] + " | " + label[0] + " | " : "") + resource.description;
-      return { resource: resource, level: actual || resource.url };
-    } catch (error) { return { error: error }; }
-  }));
-  var seen = {}, resources = [];
-  results.forEach(function (result) {
-    if (result.resource && !seen[result.level]) {
-      seen[result.level] = true;
-      resources.push(result.resource);
-    }
-  });
-  if (!resources.length) throw results[0].error;
-  return resources;
-}
-
 async function loadResource(params) {
   var p = params || {}, route = ncmLink(p.link != null ? p.link : p.id);
   if (!route) return [];
@@ -634,7 +608,7 @@ async function loadResource(params) {
         if (!list.trackIds && Number(list.trackCount) > tracks.length) ncmFail("网易云未返回完整歌单索引，请稍后重试");
         id = tracks[episode - 1] && String(tracks[episode - 1].id);
         if (!ncmId(id)) ncmFail("当前歌单没有这一集，请返回歌单重新选择");
-        return ncmPlaybackOptions(id, config);
+        return [await ncmPlayback(id, config)];
       }
       if (route.kind === "queue") {
         ncmMigrateHeartAliases(profile);
@@ -650,7 +624,7 @@ async function loadResource(params) {
       id = queue.ids[episode - 1];
       if (!id) ncmFail("当前心动列表没有这一集，请返回心动模式重新选择");
     }
-    return ncmPlaybackOptions(id, config);
+    return [await ncmPlayback(id, config)];
   });
 }
 
