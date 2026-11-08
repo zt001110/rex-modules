@@ -5,9 +5,10 @@ const target = process.argv[2] || __dirname + '/modules/music-wangyiyun.js';
 const calls = [];
 const storage = new Map();
 let expired = false, trial = false, denied = false, wrongId = false;
+let accountUser = 88;
 const song = id => ({ id: Number(id), name: 'Song ' + id, fee: 1,
   ar: [{ name: 'Artist' }], al: { name: 'Album', picUrl: 'http://p1.music.126.net/test.jpg' }, dt: 180000 });
-const playlist = { id: 42, name: 'Private list', trackCount: 205,
+const playlist = { id: 42, name: 'Private list', trackCount: 205, specialType: 5, creator: { userId: 88 },
   coverImgUrl: 'http://p1.music.126.net/list.jpg', trackIds: Array.from({ length: 205 }, (_, i) => ({ id: i + 1 })) };
 const context = vm.createContext({ console, Widget: {
   storage: { get: k => storage.get(k), set: (k, v) => storage.set(k, v), remove: k => storage.delete(k) },
@@ -15,13 +16,17 @@ const context = vm.createContext({ console, Widget: {
     calls.push({ url, options });
     const q = options.params;
     let body;
-    if (url.endsWith('/nuser/account/get')) body = expired ? { code: 200, profile: null } : { code: 200, profile: { userId: 88, nickname: 'Test' } };
+    if (url.endsWith('/nuser/account/get')) body = expired ? { code: 200, profile: null } : { code: 200, profile: { userId: accountUser, nickname: 'Test' } };
     else if (url.endsWith('/user/playlist')) body = { code: 200, playlist: [playlist] };
     else if (url.endsWith('/song/like/get')) body = { code: 200, ids: Array.from({ length: 105 }, (_, i) => i + 1) };
     else if (url.endsWith('/v3/song/detail')) body = { code: 200, songs: JSON.parse(q.c).map(x => song(x.id)).reverse() };
     else if (url.endsWith('/v6/playlist/detail')) body = { code: 200, playlist };
     else if (url.endsWith('/v1/radio/get')) body = { code: 200, data: [song(333)] };
     else if (url.endsWith('/search/get')) body = { code: 200, result: { songs: [song(444)] } };
+    else if (url.endsWith('/v1/discovery/recommend/resource')) body = { code: 200, recommend: [playlist] };
+    else if (url.endsWith('/v3/discovery/recommend/songs')) body = { code: 200, data: { dailySongs: [song(10), song(20), song(10)] } };
+    else if (url.endsWith('/playmode/intelligence/list')) body = { code: 200, data: Array.from({ length: 145 }, (_, i) => ({ songInfo: song(500 + i) })) };
+    else if (url.endsWith('/toplist')) body = { code: 200, list: [{ ...playlist, name: '云音乐热歌榜' }, { ...playlist, name: '飙升榜' }] };
     else if (url.endsWith('/song/enhance/player/url/v1')) body = { code: 200, data: JSON.parse(q.ids).map(id => ({
       id: wrongId ? 999 : id, url: denied ? null : 'http://m7.music.126.net/audio-' + id + '.mp3?signature=fixture',
       fee: 1, freeTrialInfo: trial ? { start: 0, end: 30 } : null, level: q.level, br: 320000
@@ -95,9 +100,52 @@ async function main() {
   sent = calls.filter(c => c.url.endsWith('/song/enhance/player/url/v1')).at(-1);
   assert.equal(sent.options.headers.Cookie, cookie + '; os=pc');
   assert.equal(JSON.parse(storage.get('ncm.account.v1')).cookie, cookie + '; os=android');
+  assert.equal((await context.loadRecommendedPlaylists({}))[0].link, 'ncm:playlist:42');
+  const daily = (await context.loadDaily({}))[0];
+  assert.match(daily.link, /^ncm:queue:/);
+  let queue = await context.loadDetail(daily.link);
+  assert.equal(queue.mediaType, 'tv');
+  assert.equal(queue.episodeItems.length, 2);
+  assert.equal(queue.episodeItems[1].link, 'ncm:song:20');
+  assert.match(queue.episodeItems[1].videoUrl, /audio-20\.mp3/);
+  const dailyRequests = calls.filter(c => c.url.endsWith('/v3/discovery/recommend/songs')).length;
+  await context.loadDetail(daily.link);
+  assert.equal(calls.filter(c => c.url.endsWith('/v3/discovery/recommend/songs')).length, dailyRequests);
+  const roam = (await context.loadRoam({ mode: 'SCENE_RCMD', scene: 'FOCUS' }))[0];
+  sent = calls.filter(c => c.url.endsWith('/v1/radio/get')).at(-1);
+  assert.equal(sent.options.params.mode, 'SCENE_RCMD');
+  assert.equal(sent.options.params.subMode, 'FOCUS');
+  queue = await context.loadDetail(roam.link);
+  assert.equal(queue.episodeItems[0].link, 'ncm:song:333');
+  await assert.rejects(context.loadRoam({ mode: 'invalid' }), /模式无效/);
+  await assert.rejects(context.loadRoam({ mode: 'SCENE_RCMD', scene: 'invalid' }), /场景无效/);
+  const heart = (await context.loadHeart({}))[0];
+  sent = calls.find(c => c.url.endsWith('/playmode/intelligence/list'));
+  assert.equal(sent.options.params.playlistId, '42');
+  assert.equal(sent.options.params.songId, '1');
+  assert.equal(sent.options.params.startMusicId, '1');
+  queue = await context.loadDetail(heart.link);
+  assert.equal(queue.episodeItems.length, 100);
+  assert.equal(queue.episodeItems[0].link, 'ncm:song:500');
+  queue = await context.loadDetail(queue.relatedItems[0].link);
+  assert.equal(queue.episodeItems.length, 45);
+  assert.equal(queue.episodeItems[0].link, 'ncm:song:600');
+  assert.equal(queue.episodeItems[0].episode, 101);
+  const heartCalls = calls.filter(c => c.url.endsWith('/playmode/intelligence/list')).length;
+  await assert.rejects(context.loadHeart({ playlistId: '42', songId: '999' }), /不在所选歌单/);
+  assert.equal(calls.filter(c => c.url.endsWith('/playmode/intelligence/list')).length, heartCalls);
+  assert.equal((await context.loadHot({})).length, 1);
+  accountUser = 99;
+  await assert.rejects(context.loadDetail(daily.link), /队列已过期/);
+  accountUser = 88;
+  const queues = JSON.parse(storage.get('ncm.queues.v1'));
+  queues.forEach(q => { q.created = 0; });
+  storage.set('ncm.queues.v1', JSON.stringify(queues));
+  await assert.rejects(context.loadDetail(daily.link), /队列已过期/);
   for (const p of [{}, { id: 550 }, { id: 'tt1234' }, { link: 'other:1' },
     { link: 'https://evil.test/ncm:song:1' }, { link: 'https://music.163.com.evil.test/song?id=1' },
     { link: 'ncm:song:1:2' }, { link: 'ncm:song:0' }, { link: 'ncm:playlist:42' },
+    { link: daily.link }, { link: 'ncm:queue:bad' },
     { link: '', id: 'ncm:song:1' }, { videoUrl: 'https://evil.test/a.mp3' },
     { link: 'invalid', id: 'ncm:song:1' }]) {
     const before = calls.length;
@@ -135,6 +183,6 @@ async function main() {
   assert.equal(sent.options.headers.Cookie, 'MUSIC_U=' + bareMusicU + '; os=pc');
   assert.equal((await context.loadLiked({ page: 1 })).length, 100);
   assert.ok(calls.every(c => c.url.startsWith('https://music.163.com/api/')));
-  console.log('PASS: account, cookie scope, playlist paging, liked ordering, FM, search, playback rights and source isolation');
+  console.log('PASS: account, playlist/queue playback, daily recommendations, recommended playlists, roam modes, heart seeds/paging, queue isolation/expiry, search and playback rights');
 }
 main().catch(error => { console.error(error); process.exitCode = 1; });

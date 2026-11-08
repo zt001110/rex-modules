@@ -1,9 +1,9 @@
 WidgetMetadata = {
   id: "mlitm.netease.account",
   title: "网易云音乐 · 我的音乐",
-  version: "1.0.2",
+  version: "1.1.0",
   requiredVersion: "0.0.1",
-  description: "Cookie 登录账号，读取个人歌单、喜欢的音乐与私人 FM，按账号权限在线播放。",
+  description: "账号歌单、每日推荐、推荐歌单、漫游、心动模式与热歌榜，按账号权限在线播放。",
   author: "mlitm",
   site: "https://music.163.com",
   detailCacheDuration: 0,
@@ -16,6 +16,27 @@ WidgetMetadata = {
     ] }
   ],
   modules: [
+    { id: "daily", title: "每日推荐", functionName: "loadDaily", cacheDuration: 0, params: [] },
+    { id: "roam", title: "漫游 / 私人 FM", functionName: "loadRoam", cacheDuration: 0, params: [
+      { name: "mode", title: "漫游模式", type: "enumeration", value: "DEFAULT", enumOptions: [
+        { title: "默认", value: "DEFAULT" }, { title: "熟悉", value: "FAMILIAR" },
+        { title: "探索", value: "EXPLORE" }, { title: "场景", value: "SCENE_RCMD" }
+      ] },
+      { name: "scene", title: "场景", type: "enumeration", value: "RELAX",
+        belongTo: { paramName: "mode", value: ["SCENE_RCMD"] }, enumOptions: [
+          { title: "放松", value: "RELAX" }, { title: "专注", value: "FOCUS" },
+          { title: "运动", value: "EXERCISE" }, { title: "助眠", value: "SLEEP_HELP" },
+          { title: "治愈", value: "CURE" }, { title: "欢快", value: "CHEERFUL" },
+          { title: "通勤", value: "COMMUTE" }, { title: "轻音乐", value: "LIGHT" },
+          { title: "国风", value: "GUOFENG" }, { title: "经典", value: "JINGDIAN" }
+        ] }
+    ] },
+    { id: "heart", title: "心动模式", functionName: "loadHeart", cacheDuration: 0, params: [
+      { name: "playlistId", title: "种子歌单 ID（留空用我喜欢的音乐）", type: "input" },
+      { name: "songId", title: "种子歌曲 ID（留空用歌单第一首）", type: "input" }
+    ] },
+    { id: "recommended", title: "推荐歌单", functionName: "loadRecommendedPlaylists", cacheDuration: 0, params: [] },
+    { id: "hot", title: "热歌榜", functionName: "loadHot", cacheDuration: 300, params: [] },
     { id: "account", title: "账号状态", functionName: "loadAccount", cacheDuration: 0, params: [
       { name: "action", title: "账号操作", type: "enumeration", value: "status", enumOptions: [
         { title: "检查登录", value: "status" }, { title: "清除本模块登录缓存", value: "clear" }
@@ -42,6 +63,7 @@ WidgetMetadata = {
 
 var NCM_SITE = "https://music.163.com";
 var NCM_STORAGE = "ncm.account.v1";
+var NCM_QUEUES = "ncm.queues.v1";
 var NCM_PAGE = 100;
 
 function ncmRead() {
@@ -116,6 +138,12 @@ function ncmPage(p) {
 }
 function ncmCover(url) { return String(url || "").replace(/^http:/, "https:"); }
 function ncmLink(raw) {
+  var queue = /^ncm:queue:([a-z0-9]+-[a-z0-9]+)(?::(0|[1-9]\d*))?$/.exec(String(raw || ""));
+  if (queue) {
+    var queueOffset = Number(queue[2] || 0);
+    return Number.isSafeInteger(queueOffset) && queueOffset <= 10000000 ?
+      { kind: "queue", id: queue[1], offset: queueOffset } : null;
+  }
   var match = /^ncm:(song|playlist):([1-9]\d*)(?::(0|[1-9]\d*))?$/.exec(String(raw || ""));
   if (!match || (match[1] === "song" && match[3] != null)) return null;
   var offset = Number(match[3] || 0);
@@ -155,11 +183,120 @@ async function loadAccount(params) {
   return ncmGuard(async function () {
     if ((params || {}).action === "clear") {
       Widget.storage.remove(NCM_STORAGE);
+      Widget.storage.remove(NCM_QUEUES);
       return [{ id: "ncm:status", type: "url", title: "本模块登录缓存已清除", description: "请同时清空模块全局参数中的 Cookie。" }];
     }
     var profile = await ncmProfile(ncmConfig(params));
     return [{ id: "ncm:status", type: "url", title: "已登录 · " + profile.nickname,
       coverUrl: ncmCover(profile.avatarUrl), description: "网易云 UID：" + profile.userId }];
+  });
+}
+
+function ncmReadQueues() {
+  var raw = Widget.storage.get(NCM_QUEUES);
+  try {
+    var queues = typeof raw === "string" ? JSON.parse(raw) : raw;
+    return Array.isArray(queues) ? queues : [];
+  } catch (_) { return []; }
+}
+
+function ncmQueueItem(queue, offset) {
+  var link = "ncm:queue:" + queue.id + (offset ? ":" + offset : "");
+  return { id: link, link: link, type: "url", mediaType: "tv", title: queue.title,
+    coverUrl: queue.cover, posterPath: queue.cover, backdropPath: queue.cover,
+    description: queue.ids.length + " 首" };
+}
+
+function ncmSaveQueue(title, songs, profile) {
+  var seen = {}, unique = songs.filter(function (song) {
+    if (!song || !ncmId(song.id) || seen[String(song.id)]) return false;
+    seen[String(song.id)] = true;
+    return true;
+  });
+  if (!unique.length) ncmFail(title + "暂未返回歌曲，请稍后刷新");
+  var now = Date.now(), queue = {
+    id: now.toString(36) + "-" + Math.random().toString(36).slice(2, 10),
+    userId: String(profile.userId), created: now, title: title,
+    cover: ncmSong(unique[0]).coverUrl, ids: unique.map(function (s) { return String(s.id); })
+  };
+  var queues = ncmReadQueues().filter(function (q) {
+    return q.userId === queue.userId && now - q.created < 86400000;
+  }).slice(-11);
+  queues.push(queue);
+  Widget.storage.set(NCM_QUEUES, JSON.stringify(queues));
+  return [ncmQueueItem(queue)];
+}
+
+async function loadRecommendedPlaylists(params) {
+  return ncmGuard(async function () {
+    var config = ncmConfig(params);
+    await ncmProfile(config);
+    var data = await ncmApi("/v1/discovery/recommend/resource", {}, config);
+    var lists = (data.recommend || []).filter(function (p) { return ncmId(p.id); });
+    if (!lists.length) ncmFail("推荐歌单暂时为空，请稍后刷新");
+    return lists.map(function (p) { return ncmPlaylist(p); });
+  });
+}
+
+async function loadDaily(params) {
+  return ncmGuard(async function () {
+    var config = ncmConfig(params), profile = await ncmProfile(config);
+    var data = await ncmApi("/v3/discovery/recommend/songs", {}, config);
+    return ncmSaveQueue("每日推荐", (data.data || {}).dailySongs || [], profile);
+  });
+}
+
+async function loadRoam(params) {
+  return ncmGuard(async function () {
+    var p = params || {}, config = ncmConfig(p), profile = await ncmProfile(config);
+    var mode = String(p.mode || "DEFAULT");
+    if (["DEFAULT", "FAMILIAR", "EXPLORE", "SCENE_RCMD"].indexOf(mode) < 0) ncmFail("漫游模式无效");
+    var query = { mode: mode, limit: 3 };
+    var title = { DEFAULT: "漫游", FAMILIAR: "熟悉漫游", EXPLORE: "探索漫游", SCENE_RCMD: "场景漫游" }[mode];
+    if (mode === "SCENE_RCMD") {
+      var scene = String(p.scene || "RELAX");
+      if (["RELAX", "FOCUS", "EXERCISE", "SLEEP_HELP", "CURE", "CHEERFUL", "COMMUTE", "LIGHT", "GUOFENG", "JINGDIAN"].indexOf(scene) < 0) ncmFail("漫游场景无效");
+      query.subMode = scene;
+    }
+    var data = await ncmApi("/v1/radio/get", query, config);
+    return ncmSaveQueue(title, data.data || [], profile);
+  });
+}
+
+async function loadHeart(params) {
+  return ncmGuard(async function () {
+    var p = params || {}, config = ncmConfig(p), profile = await ncmProfile(config);
+    var playlistId = String(p.playlistId || "").trim(), songId = String(p.songId || "").trim();
+    if (playlistId && !ncmId(playlistId)) ncmFail("种子歌单 ID 无效");
+    if (songId && !ncmId(songId)) ncmFail("种子歌曲 ID 无效");
+    if (!playlistId) {
+      var lists = await ncmApi("/user/playlist", { uid: profile.userId, limit: 100, offset: 0 }, config);
+      var liked = (lists.playlist || []).filter(function (list) {
+        return Number(list.specialType) === 5 && String((list.creator || {}).userId) === String(profile.userId);
+      })[0];
+      if (!liked || !ncmId(liked.id)) ncmFail("未找到我喜欢的音乐，请填写种子歌单 ID");
+      playlistId = String(liked.id);
+    }
+    var detail = await ncmApi("/v6/playlist/detail", { id: playlistId, n: 1 }, config);
+    if (!detail.playlist || String(detail.playlist.id) !== playlistId) ncmFail("种子歌单不存在或无法访问");
+    var ids = (detail.playlist.trackIds || detail.playlist.tracks || []).map(function (s) { return String(s.id); }).filter(ncmId);
+    if (!ids.length) ncmFail("种子歌单没有歌曲");
+    if (!songId) songId = ids[0];
+    if (ids.indexOf(songId) < 0) ncmFail("种子歌曲不在所选歌单中");
+    var data = await ncmApi("/playmode/intelligence/list", {
+      songId: songId, startMusicId: songId, playlistId: playlistId, type: "fromPlayOne", count: 30
+    }, config);
+    return ncmSaveQueue("心动模式", (data.data || []).map(function (entry) { return entry.songInfo; }), profile);
+  });
+}
+
+async function loadHot(params) {
+  return ncmGuard(async function () {
+    var config = ncmConfig(params);
+    var data = await ncmApi("/toplist", {}, config);
+    return (data.list || []).filter(function (p) {
+      return ncmId(p.id) && /热歌榜/.test(String(p.name || ""));
+    }).map(function (p) { return ncmPlaylist(p); });
   });
 }
 
@@ -205,27 +342,49 @@ async function ncmPlaylistDetail(route, config) {
   var item = ncmPlaylist(list, route.offset);
   item.episodeItems = await ncmSongs(ids.slice(route.offset, route.offset + NCM_PAGE), config);
   item.episodeItems.forEach(function (song, i) { song.episode = route.offset + i + 1; });
+  await ncmFillEpisodePlayback(item.episodeItems, config);
+  item.relatedItems = [];
+  ncmPageNeighbors(item, ids.length, route.offset, function (offset) { return ncmPlaylist(list, offset); });
+  return item;
+}
+
+async function ncmFillEpisodePlayback(items, config) {
   // Rex's in-player episode switch also resolves the parent detail's episode URLs.
-  var tracks = await ncmPlaybackTracks(item.episodeItems.map(function (song) {
+  var tracks = await ncmPlaybackTracks(items.map(function (song) {
     return ncmLink(song.link).id;
   }), config);
-  item.episodeItems.forEach(function (song) {
+  items.forEach(function (song) {
     var track = tracks[ncmLink(song.link).id];
     if (track && track.url && !track.freeTrialInfo && !track.freeTimeTrialInfo) {
       ncmAttachPlayback(song, ncmTrackResource(track, config.quality || "standard"));
     }
   });
-  item.relatedItems = [];
-  if (route.offset + NCM_PAGE < ids.length) {
-    var next = ncmPlaylist(list, route.offset + NCM_PAGE);
-    next.title = "下一页 · " + (route.offset + NCM_PAGE + 1) + "–" + Math.min(route.offset + 2 * NCM_PAGE, ids.length);
+}
+
+function ncmPageNeighbors(item, total, offset, makeItem) {
+  if (offset + NCM_PAGE < total) {
+    var next = makeItem(offset + NCM_PAGE);
+    next.title = "下一页 · " + (offset + NCM_PAGE + 1) + "–" + Math.min(offset + 2 * NCM_PAGE, total);
     item.relatedItems.push(next);
   }
-  if (route.offset > 0) {
-    var previous = ncmPlaylist(list, Math.max(0, route.offset - NCM_PAGE));
+  if (offset > 0) {
+    var previous = makeItem(Math.max(0, offset - NCM_PAGE));
     previous.title = "上一页";
     item.relatedItems.push(previous);
   }
+}
+
+async function ncmQueueDetail(route, config, profile) {
+  var queue = ncmReadQueues().filter(function (q) {
+    return q.id === route.id && q.userId === String(profile.userId) && Date.now() - q.created < 86400000;
+  })[0];
+  if (!queue) ncmFail("推荐队列已过期，请返回模块重新获取");
+  var item = ncmQueueItem(queue, route.offset);
+  item.episodeItems = await ncmSongs(queue.ids.slice(route.offset, route.offset + NCM_PAGE), config);
+  item.episodeItems.forEach(function (song, i) { song.episode = route.offset + i + 1; });
+  await ncmFillEpisodePlayback(item.episodeItems, config);
+  item.relatedItems = [];
+  ncmPageNeighbors(item, queue.ids.length, route.offset, function (offset) { return ncmQueueItem(queue, offset); });
   return item;
 }
 
@@ -252,8 +411,9 @@ async function loadDetail(link) {
   if (!route) return null;
   return ncmGuard(async function () {
     var config = ncmRead();
-    await ncmProfile(config);
+    var profile = await ncmProfile(config);
     if (route.kind === "playlist") return ncmPlaylistDetail(route, config);
+    if (route.kind === "queue") return ncmQueueDetail(route, config, profile);
     var items = await ncmSongs([route.id], config);
     if (!items.length) ncmFail("网易云未返回这首歌曲的信息");
     ncmAttachPlayback(items[0], await ncmPlayback(route.id, config));
