@@ -1,7 +1,7 @@
 WidgetMetadata = {
   id: "mlitm.netease.account",
   title: "网易云音乐 · 我的音乐",
-  version: "1.0.1",
+  version: "1.0.2",
   requiredVersion: "0.0.1",
   description: "Cookie 登录账号，读取个人歌单、喜欢的音乐与私人 FM，按账号权限在线播放。",
   author: "mlitm",
@@ -205,6 +205,16 @@ async function ncmPlaylistDetail(route, config) {
   var item = ncmPlaylist(list, route.offset);
   item.episodeItems = await ncmSongs(ids.slice(route.offset, route.offset + NCM_PAGE), config);
   item.episodeItems.forEach(function (song, i) { song.episode = route.offset + i + 1; });
+  // Rex's in-player episode switch also resolves the parent detail's episode URLs.
+  var tracks = await ncmPlaybackTracks(item.episodeItems.map(function (song) {
+    return ncmLink(song.link).id;
+  }), config);
+  item.episodeItems.forEach(function (song) {
+    var track = tracks[ncmLink(song.link).id];
+    if (track && track.url && !track.freeTrialInfo && !track.freeTimeTrialInfo) {
+      ncmAttachPlayback(song, ncmTrackResource(track, config.quality || "standard"));
+    }
+  });
   item.relatedItems = [];
   if (route.offset + NCM_PAGE < ids.length) {
     var next = ncmPlaylist(list, route.offset + NCM_PAGE);
@@ -246,19 +256,34 @@ async function loadDetail(link) {
     if (route.kind === "playlist") return ncmPlaylistDetail(route, config);
     var items = await ncmSongs([route.id], config);
     if (!items.length) ncmFail("网易云未返回这首歌曲的信息");
+    ncmAttachPlayback(items[0], await ncmPlayback(route.id, config));
     return items[0];
   });
 }
 
-async function ncmPlayback(id, config) {
+function ncmAttachPlayback(item, resource) {
+  item.videoUrl = resource.url;
+  item.customHeaders = resource.customHeaders;
+  item.playerType = resource.playerType;
+}
+
+async function ncmPlaybackTracks(ids, config) {
+  if (!ids.length) return {};
   var quality = config.quality || "standard";
   // MUSIC_U alone can produce a signed CDN URL that returns 403 without a client OS.
   var playbackCookie = String(config.cookie || "").split(";").map(function (part) {
     return part.trim();
   }).filter(function (part) { return part && !/^os\s*=/i.test(part); }).join("; ");
   var playbackConfig = Object.assign({}, config, { cookie: playbackCookie + "; os=pc" });
-  var data = await ncmApi("/song/enhance/player/url/v1", { ids: "[" + id + "]", level: quality, encodeType: quality === "lossless" ? "flac" : "mp3" }, playbackConfig);
-  var track = (data.data || []).filter(function (t) { return String(t.id) === id; })[0];
+  var data = await ncmApi("/song/enhance/player/url/v1", { ids: "[" + ids.join(",") + "]", level: quality, encodeType: quality === "lossless" ? "flac" : "mp3" }, playbackConfig);
+  var tracks = {};
+  (data.data || []).forEach(function (track) {
+    if (ids.indexOf(String(track.id)) >= 0) tracks[String(track.id)] = track;
+  });
+  return tracks;
+}
+
+function ncmTrackResource(track, quality) {
   if (!track || !track.url) ncmFail("此账号暂时无法播放这首歌，请检查会员、购买权限或地区版权");
   if (track.freeTrialInfo || track.freeTimeTrialInfo) ncmFail("网易云只返回了试听片段，当前账号没有完整播放权限");
   if (!/^https?:\/\//i.test(track.url)) ncmFail("网易云返回了无效播放地址");
@@ -269,6 +294,11 @@ async function ncmPlayback(id, config) {
       Referer: NCM_SITE + "/"
     },
     playerType: "app" };
+}
+
+async function ncmPlayback(id, config) {
+  var tracks = await ncmPlaybackTracks([id], config);
+  return ncmTrackResource(tracks[id], config.quality || "standard");
 }
 
 async function loadResource(params) {

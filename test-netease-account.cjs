@@ -22,10 +22,10 @@ const context = vm.createContext({ console, Widget: {
     else if (url.endsWith('/v6/playlist/detail')) body = { code: 200, playlist };
     else if (url.endsWith('/v1/radio/get')) body = { code: 200, data: [song(333)] };
     else if (url.endsWith('/search/get')) body = { code: 200, result: { songs: [song(444)] } };
-    else if (url.endsWith('/song/enhance/player/url/v1')) body = { code: 200, data: [{
-      id: wrongId ? 999 : JSON.parse(q.ids)[0], url: denied ? null : 'http://m7.music.126.net/audio.mp3?signature=fixture',
+    else if (url.endsWith('/song/enhance/player/url/v1')) body = { code: 200, data: JSON.parse(q.ids).map(id => ({
+      id: wrongId ? 999 : id, url: denied ? null : 'http://m7.music.126.net/audio-' + id + '.mp3?signature=fixture',
       fee: 1, freeTrialInfo: trial ? { start: 0, end: 30 } : null, level: q.level, br: 320000
-    }] };
+    })).reverse() };
     else throw Error('Unmocked request');
     return { statusCode: 200, data: JSON.stringify(body) };
   } }
@@ -51,10 +51,17 @@ async function main() {
   assert.equal(detail.episodeItems.length, 100);
   assert.equal(detail.episodeItems[0].link, 'ncm:song:1');
   assert.equal(detail.episodeItems[99].link, 'ncm:song:100');
+  assert.equal(detail.episodeItems[0].videoUrl, 'https://m7.music.126.net/audio-1.mp3?signature=fixture');
+  assert.equal(detail.episodeItems[1].videoUrl, 'https://m7.music.126.net/audio-2.mp3?signature=fixture');
+  assert.equal(detail.episodeItems[99].videoUrl, 'https://m7.music.126.net/audio-100.mp3?signature=fixture');
+  assert.equal(detail.episodeItems[1].customHeaders.Cookie, undefined);
+  sent = calls.filter(c => c.url.endsWith('/song/enhance/player/url/v1')).at(-1);
+  assert.deepEqual(JSON.parse(sent.options.params.ids), Array.from({ length: 100 }, (_, i) => i + 1));
   assert.equal(detail.relatedItems[0].link, 'ncm:playlist:42:100');
   detail = await context.loadDetail(detail.relatedItems[0].link);
   assert.equal(detail.episodeItems[0].link, 'ncm:song:101');
   assert.equal(detail.episodeItems[0].episode, 101);
+  assert.match(detail.episodeItems[0].videoUrl, /audio-101\.mp3/);
   detail = await context.loadDetail(detail.relatedItems[0].link);
   assert.equal(detail.episodeItems.length, 5);
   assert.equal(detail.relatedItems.length, 1);
@@ -68,13 +75,14 @@ async function main() {
   assert.equal((await context.search({ keyword: 'Test', page: 2 }))[0].link, 'ncm:song:444');
   sent = calls.find(c => c.url.endsWith('/search/get'));
   assert.equal(sent.options.params.offset, 30);
+  const beforeDetail = calls.filter(c => c.url.endsWith('/song/enhance/player/url/v1')).length;
   const songDetail = await context.loadDetail('ncm:song:101');
-  assert.equal(songDetail.videoUrl, undefined);
-  assert.equal(calls.filter(c => c.url.endsWith('/song/enhance/player/url/v1')).length, 0);
+  assert.match(songDetail.videoUrl, /audio-101\.mp3/);
+  assert.equal(calls.filter(c => c.url.endsWith('/song/enhance/player/url/v1')).length, beforeDetail + 1);
   let resources = await context.loadResource({ link: liked[0].link });
   assert.match(resources[0].url, /^https:\/\//);
   assert.equal(resources[0].customHeaders.Referer, 'https://music.163.com/');
-  assert.equal(resources[0].url, 'https://m7.music.126.net/audio.mp3?signature=fixture');
+  assert.equal(resources[0].url, 'https://m7.music.126.net/audio-101.mp3?signature=fixture');
   assert.equal(resources[0].customHeaders['X-Forward-Skip-Redirect-Probe'], undefined);
   assert.equal(resources[0].customHeaders.Cookie, undefined);
   assert.equal(resources[0].playerType, 'app');
@@ -100,10 +108,17 @@ async function main() {
   assert.equal(await context.loadDetail('ncm:song:1?x=2'), null);
   assert.equal(calls.length, before);
   trial = true;
+  detail = await context.loadDetail('ncm:playlist:42');
+  assert.ok(detail.episodeItems.every(item => item.videoUrl === undefined));
   await assert.rejects(context.loadResource({ link: 'ncm:song:1' }), /试听/);
+  await assert.rejects(context.loadDetail('ncm:song:1'), /试听/);
   trial = false; denied = true;
+  detail = await context.loadDetail('ncm:playlist:42');
+  assert.ok(detail.episodeItems.every(item => item.videoUrl === undefined));
   await assert.rejects(context.loadResource({ link: 'ncm:song:1' }), /无法播放/);
   denied = false; wrongId = true;
+  detail = await context.loadDetail('ncm:playlist:42');
+  assert.ok(detail.episodeItems.every(item => item.videoUrl === undefined));
   await assert.rejects(context.loadResource({ link: 'ncm:song:1' }), /无法播放/);
   wrongId = false; expired = true;
   await assert.rejects(context.loadPersonalFM({}), /未识别登录/);
