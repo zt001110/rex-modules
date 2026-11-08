@@ -1,9 +1,9 @@
 WidgetMetadata = {
   id: "mlitm.netease.account",
   title: "网易云音乐 · 我的音乐",
-  version: "1.1.4",
+  version: "1.1.5",
   requiredVersion: "0.0.1",
-  description: "账号歌单、每日推荐、推荐歌单、漫游、心动模式与热歌榜，按账号权限在线播放。",
+  description: "账号歌单、每日推荐、推荐歌单、心动模式与热歌榜，按账号权限在线播放。",
   author: "mlitm",
   site: "https://music.163.com",
   detailCacheDuration: 0,
@@ -17,43 +17,25 @@ WidgetMetadata = {
   ],
   modules: [
     { id: "daily", title: "每日推荐", functionName: "loadDaily", cacheDuration: 0, params: [] },
-    { id: "roam", title: "漫游 / 私人 FM", functionName: "loadRoam", cacheDuration: 0, params: [
-      { name: "mode", title: "漫游模式", type: "enumeration", value: "DEFAULT", enumOptions: [
-        { title: "默认", value: "DEFAULT" }, { title: "熟悉", value: "FAMILIAR" },
-        { title: "探索", value: "EXPLORE" }, { title: "场景", value: "SCENE_RCMD" }
-      ] },
-      { name: "scene", title: "场景", type: "enumeration", value: "RELAX",
-        belongTo: { paramName: "mode", value: ["SCENE_RCMD"] }, enumOptions: [
-          { title: "放松", value: "RELAX" }, { title: "专注", value: "FOCUS" },
-          { title: "运动", value: "EXERCISE" }, { title: "助眠", value: "SLEEP_HELP" },
-          { title: "治愈", value: "CURE" }, { title: "欢快", value: "CHEERFUL" },
-          { title: "通勤", value: "COMMUTE" }, { title: "轻音乐", value: "LIGHT" },
-          { title: "国风", value: "GUOFENG" }, { title: "经典", value: "JINGDIAN" }
-        ] }
-    ] },
     { id: "heart", title: "心动模式", functionName: "loadHeart", cacheDuration: 0, params: [
       { name: "playlistId", title: "种子歌单 ID（留空用我喜欢的音乐）", type: "input" },
       { name: "songId", title: "种子歌曲 ID（留空用歌单第一首）", type: "input" }
     ] },
     { id: "recommended", title: "推荐歌单", functionName: "loadRecommendedPlaylists", cacheDuration: 0, params: [] },
     { id: "hot", title: "热歌榜", functionName: "loadHot", cacheDuration: 300, params: [] },
-    { id: "account", title: "账号状态", functionName: "loadAccount", cacheDuration: 0, params: [
-      { name: "action", title: "账号操作", type: "enumeration", value: "status", enumOptions: [
-        { title: "检查登录", value: "status" }, { title: "清除本模块登录缓存", value: "clear" }
-      ] }
-    ] },
     { id: "playlists", title: "我的歌单", functionName: "loadMyPlaylists", cacheDuration: 0, params: [
       { name: "page", title: "页码", type: "page" }
     ] },
-    { id: "liked", title: "我喜欢的音乐", functionName: "loadLiked", cacheDuration: 0, params: [
-      { name: "page", title: "页码", type: "page" }
-    ] },
-    { id: "fm", title: "私人 FM", functionName: "loadPersonalFM", cacheDuration: 0, params: [] },
     { id: "playlist", title: "打开歌单", functionName: "loadPlaylist", cacheDuration: 0, params: [
       { name: "playlistId", title: "网易云歌单 ID", type: "input" },
       { name: "page", title: "页码", type: "page" }
     ] },
-    { id: "loadResource", title: "网易云账号播放", functionName: "loadResource", type: "stream", cacheDuration: 0, params: [] }
+    { id: "loadResource", title: "网易云账号播放", functionName: "loadResource", type: "stream", cacheDuration: 0, params: [] },
+    { id: "account", title: "账号状态", functionName: "loadAccount", cacheDuration: 0, params: [
+      { name: "action", title: "账号操作", type: "enumeration", value: "status", enumOptions: [
+        { title: "检查登录", value: "status" }, { title: "清除本模块登录缓存", value: "clear" }
+      ] }
+    ] }
   ],
   search: { title: "搜索网易云歌曲", functionName: "search", params: [
     { name: "keyword", title: "关键词", type: "input" },
@@ -305,6 +287,11 @@ async function loadRoam(params) {
 async function loadHeart(params) {
   return ncmGuard(async function () {
     var p = params || {}, config = ncmConfig(p), profile = await ncmProfile(config);
+    return ncmGenerateHeart(p, config, profile);
+  });
+}
+
+async function ncmGenerateHeart(p, config, profile) {
     var playlistId = String(p.playlistId || "").trim(), songId = String(p.songId || "").trim();
     if (playlistId && !ncmId(playlistId)) ncmFail("种子歌单 ID 无效");
     if (songId && !ncmId(songId)) ncmFail("种子歌曲 ID 无效");
@@ -331,7 +318,6 @@ async function loadHeart(params) {
     Widget.storage.set(NCM_HEART_CURRENT, JSON.stringify(queue));
     Widget.storage.remove(NCM_HEART_CACHE);
     return [ncmQueueItem(queue)];
-  });
 }
 
 function ncmStoredObject(key) {
@@ -400,9 +386,26 @@ async function loadHot(params) {
 
 async function loadMyPlaylists(params) {
   return ncmGuard(async function () {
-    var config = ncmConfig(params), profile = await ncmProfile(config);
-    var data = await ncmApi("/user/playlist", { uid: profile.userId, limit: 30, offset: (ncmPage(params) - 1) * 30, includeVideo: false }, config);
-    return (data.playlist || []).filter(function (p) { return ncmId(p.id); }).map(function (p) { return ncmPlaylist(p); });
+    var config = ncmConfig(params), profile = await ncmProfile(config), page = ncmPage(params);
+    var data = await ncmApi("/user/playlist", { uid: profile.userId, limit: 30, offset: (page - 1) * 30, includeVideo: false }, config);
+    var lists = (data.playlist || []).filter(function (p) { return ncmId(p.id); });
+    var items = lists.map(function (p) { return ncmPlaylist(p); });
+    if (page !== 1) return items;
+    var likedIndex = lists.findIndex(function (p) {
+      return Number(p.specialType) === 5 && String((p.creator || {}).userId) === String(profile.userId);
+    });
+    if (likedIndex < 0) return items;
+    var liked = items.splice(likedIndex, 1)[0], heart;
+    try { heart = (await ncmGenerateHeart({ playlistId: String(lists[likedIndex].id) }, config, profile))[0]; } catch (_) {
+      // A recommendation failure must not hide the user's playlists.
+      var current = ncmStoredObject(NCM_HEART_CURRENT);
+      heart = current.userId === String(profile.userId) && Array.isArray(current.ids) && current.ids.length ?
+        ncmQueueItem(current) : { id: "ncm:heart", link: "ncm:heart", type: "url", mediaType: "tv",
+          title: "心动模式", coverUrl: liked.coverUrl, posterPath: liked.posterPath, backdropPath: liked.backdropPath,
+          description: "根据我喜欢的音乐推荐" };
+    }
+    items.unshift(liked, heart);
+    return items;
   });
 }
 

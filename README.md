@@ -23,7 +23,7 @@ Rex 模块链接导入使用 `https://raw.githubusercontent.com/zt001110/rex-mod
 | 文件 | 用途 |
 |---|---|
 | `modules/marvel-mcu-rex.js` | 漫威宇宙模块源码，含电影和电视剧列表；版本 `1.1.0`。以后个人模块源码统一放在 `modules/`。 |
-| `modules/music-wangyiyun.js` | 网易云账号模块 `1.1.4`，每日推荐直接展示歌曲卡片，从所选歌曲开始顺序连播；支持推荐、漫游及个人歌单，心动模式使用固定条目及分集链接。见 `docs/网易云账号模块.md`。 |
+| `modules/music-wangyiyun.js` | 网易云账号模块 `1.1.5`，我的歌单第二张为心动模式，移除漫游、私人 FM 和独立喜欢音乐入口，账号状态置底；每日推荐歌曲卡片支持顺序连播。见 `docs/网易云账号模块.md`。 |
 | `encrypted/modules/marvel-mcu-rex.js` | 自动加密生成的控制面板导入文件。 |
 | `peach-logo.png` | 模块使用的图片素材。 |
 | `.github/workflows/encrypt-modules.yml` | 源码推送到 `main` 后自动生成或更新加密发布文件。 |

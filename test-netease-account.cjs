@@ -17,6 +17,7 @@ const song = id => ({ id: Number(id), name: 'Song ' + id, fee: 1,
   ar: [{ name: 'Artist' }], al: { name: 'Album', picUrl: 'http://p1.music.126.net/test.jpg' }, dt: 180000 });
 const playlist = { id: 42, name: 'Private list', trackCount: 205, specialType: 5, creator: { userId: 88 },
   coverImgUrl: 'http://p1.music.126.net/list.jpg', trackIds: Array.from({ length: 205 }, (_, i) => ({ id: i + 1 })) };
+let userPlaylists = [playlist];
 const context = vm.createContext({ console, Date: TestDate, Widget: {
   storage: { get: k => storage.get(k), set: (k, v) => storage.set(k, v), remove: k => storage.delete(k) },
   http: { get: async (url, options) => {
@@ -24,7 +25,7 @@ const context = vm.createContext({ console, Date: TestDate, Widget: {
     const q = options.params;
     let body;
     if (url.endsWith('/nuser/account/get')) body = expired ? { code: 200, profile: null } : { code: 200, profile: { userId: accountUser, nickname: 'Test' } };
-    else if (url.endsWith('/user/playlist')) body = { code: 200, playlist: [playlist] };
+    else if (url.endsWith('/user/playlist')) body = { code: 200, playlist: userPlaylists };
     else if (url.endsWith('/song/like/get')) body = { code: 200, ids: Array.from({ length: 105 }, (_, i) => i + 1) };
     else if (url.endsWith('/v3/song/detail')) body = { code: 200, songs: JSON.parse(q.c).map(x => song(x.id)).reverse() };
     else if (url.endsWith('/v6/playlist/detail')) body = { code: 200, playlist };
@@ -46,6 +47,8 @@ vm.runInContext(fs.readFileSync(target, 'utf8'), context);
 
 async function main() {
   assert.equal(context.WidgetMetadata.id, 'mlitm.netease.account');
+  assert.deepEqual(Array.from(context.WidgetMetadata.modules.filter(m => !m.type), m => m.id),
+    ['daily', 'heart', 'recommended', 'hot', 'playlists', 'playlist', 'account']);
   for (const m of context.WidgetMetadata.modules) assert.equal(typeof context[m.functionName], 'function');
   await assert.rejects(context.loadAccount({}), /Cookie/);
   const cookie = 'MUSIC_U=fixture-only; __csrf=fixture-csrf';
@@ -270,6 +273,26 @@ async function main() {
   wrongId = false; expired = true;
   await assert.rejects(context.loadPersonalFM({}), /未识别登录/);
   expired = false;
+  userPlaylists = [{ ...playlist, id: 43, name: 'DJ', specialType: 0 }, playlist,
+    { ...playlist, id: 44, creator: { userId: 99 } }];
+  const beforeHeartRefresh = calls.filter(c => c.url.endsWith('/playmode/intelligence/list')).length;
+  const arranged = await context.loadMyPlaylists({ page: 1 });
+  assert.deepEqual(Array.from(arranged, item => item.link),
+    ['ncm:playlist:42', 'ncm:heart', 'ncm:playlist:43', 'ncm:playlist:44']);
+  assert.equal(arranged[1].title, '心动模式');
+  assert.equal(calls.filter(c => c.url.endsWith('/playmode/intelligence/list')).length, beforeHeartRefresh + 1);
+  assert.equal((await context.loadDetail(arranged[1].link)).id, heart.id);
+  assert.equal((await context.loadMyPlaylists({ page: 2 })).some(item => item.link === 'ncm:heart'), false);
+  emptyHeart = true;
+  assert.equal((await context.loadMyPlaylists({}))[1].link, 'ncm:heart');
+  storage.delete('ncm.heart.current.v1');
+  assert.equal((await context.loadMyPlaylists({}))[1].description, '根据我喜欢的音乐推荐');
+  emptyHeart = false;
+  userPlaylists = [{ ...playlist, creator: { userId: 99 } }];
+  const beforeForeign = calls.filter(c => c.url.endsWith('/playmode/intelligence/list')).length;
+  assert.equal((await context.loadMyPlaylists({})).some(item => item.link === 'ncm:heart'), false);
+  assert.equal(calls.filter(c => c.url.endsWith('/playmode/intelligence/list')).length, beforeForeign);
+  userPlaylists = [playlist];
   await context.loadAccount({ action: 'clear' });
   assert.equal(storage.size, 0);
   await assert.rejects(context.loadResource({ link: 'ncm:song:1' }), /Cookie/);
