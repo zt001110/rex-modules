@@ -136,13 +136,31 @@ async function main() {
   assert.equal(heart.link, 'ncm:heart');
   assert.equal(storage.has('ncm.heart.daily.v1'), false);
   assert.equal((await context.loadDetail('ncm:queue:legacy-recent')).id, heart.id);
-  assert.equal((await context.loadDetail('ncm:queue:legacy-cached:100')).episodeItems[0].link, 'ncm:song:500');
+  const savedHeartEpisode = (await context.loadDetail('ncm:queue:legacy-cached:100')).episodeItems[0];
+  assert.equal(savedHeartEpisode.link, 'ncm:heart:1');
+  assert.equal(savedHeartEpisode.title, 'Song 500');
   let heartRequests = calls.filter(c => c.url.endsWith('/playmode/intelligence/list')).length;
   heartBase = 700;
   assert.equal((await context.loadHeart({}))[0].link, heart.link);
   assert.equal(calls.filter(c => c.url.endsWith('/playmode/intelligence/list')).length, heartRequests + 1);
-  assert.equal((await context.loadDetail(heart.link)).episodeItems[0].link, 'ncm:song:700');
-  assert.equal((await context.loadDetail('ncm:queue:legacy-recent')).episodeItems[0].link, 'ncm:song:700');
+  assert.equal((await context.loadDetail(heart.link)).episodeItems[0].link, savedHeartEpisode.link);
+  assert.equal((await context.loadDetail('ncm:queue:legacy-recent')).episodeItems[0].title, 'Song 700');
+  assert.equal((await context.loadDetail(savedHeartEpisode.link)).title, 'Song 700');
+  for (const p of [
+    { link: savedHeartEpisode.link, id: savedHeartEpisode.id, season: 1, episode: 1 },
+    { link: 'ncm:heart', season: 1, episode: 101 },
+    { link: 'ncm:queue:legacy-recent', season: 1, episode: 1 }
+  ]) {
+    const result = await context.loadResource(p);
+    const expected = p.episode === 101 ? 800 : 700;
+    assert.match(result[0].url, new RegExp('audio-' + expected + '\\.mp3'));
+    assert.equal(calls.filter(c => c.url.endsWith('/song/enhance/player/url/v1')).at(-1).options.params.ids, '[' + expected + ']');
+  }
+  await assert.rejects(context.loadResource({ link: 'ncm:heart:146' }), /没有这一集/);
+  const playerCalls = calls.filter(c => c.url.endsWith('/song/enhance/player/url/v1')).length;
+  assert.equal((await context.loadResource({ link: daily.link, episode: 1 })).length, 0);
+  assert.equal((await context.loadResource({ link: 'ncm:queue:unknown-heart', episode: 1, seriesName: '心动模式' })).length, 0);
+  assert.equal(calls.filter(c => c.url.endsWith('/song/enhance/player/url/v1')).length, playerCalls);
   assert.equal(calls.filter(c => c.url.endsWith('/playmode/intelligence/list')).length, heartRequests + 1);
   assert.equal(context.ncmBeijingDay, undefined);
   clock += 1;
@@ -156,14 +174,14 @@ async function main() {
   assert.equal(sent.options.params.startMusicId, '2');
   for (let i = 0; i < 13; i++) await context.loadRoam({});
   assert.equal(JSON.parse(storage.get('ncm.queues.v1')).length, 12);
-  assert.equal((await context.loadDetail('ncm:queue:legacy-recent')).episodeItems[0].link, 'ncm:song:700');
+  assert.equal((await context.loadDetail('ncm:queue:legacy-recent')).episodeItems[0].title, 'Song 700');
   expired = true;
   await assert.rejects(context.loadHeart({}), /未识别登录/);
   expired = false;
   clock += 86400000;
   emptyHeart = true;
   await assert.rejects(context.loadHeart({}), /暂未返回歌曲/);
-  assert.equal((await context.loadDetail(heart.link)).episodeItems[0].link, 'ncm:song:700');
+  assert.equal((await context.loadDetail(heart.link)).episodeItems[0].title, 'Song 700');
   emptyHeart = false;
   heartRequests = calls.filter(c => c.url.endsWith('/playmode/intelligence/list')).length;
   const retryHeart = (await context.loadHeart({}))[0];
@@ -171,6 +189,7 @@ async function main() {
   accountUser = 99;
   await assert.rejects(context.loadDetail(retryHeart.link), /未找到我喜欢/);
   await assert.rejects(context.loadDetail('ncm:queue:legacy-recent'), /队列已过期/);
+  assert.equal((await context.loadResource({ link: 'ncm:queue:legacy-recent', episode: 1 })).length, 0);
   accountUser = 88;
   sent = calls.find(c => c.url.endsWith('/playmode/intelligence/list'));
   assert.equal(sent.options.params.playlistId, '42');
@@ -178,8 +197,10 @@ async function main() {
   assert.equal(sent.options.params.startMusicId, '1');
   queue = await context.loadDetail((await context.loadHeart({}))[0].link);
   assert.equal(queue.episodeItems.length, 145);
-  assert.equal(queue.episodeItems[0].link, 'ncm:song:700');
-  assert.equal(queue.episodeItems[100].link, 'ncm:song:800');
+  assert.equal(queue.episodeItems[0].link, 'ncm:heart:1');
+  assert.equal(queue.episodeItems[0].title, 'Song 700');
+  assert.equal(queue.episodeItems[100].link, 'ncm:heart:101');
+  assert.equal(queue.episodeItems[100].title, 'Song 800');
   assert.equal(queue.episodeItems[100].episode, 101);
   assert.equal(queue.relatedItems.length, 0);
   assert.match(queue.episodeItems[144].videoUrl, /audio-844\.mp3/);
@@ -202,6 +223,9 @@ async function main() {
     { link: 'https://evil.test/ncm:song:1' }, { link: 'https://music.163.com.evil.test/song?id=1' },
     { link: 'ncm:song:1:2' }, { link: 'ncm:song:0' }, { link: 'ncm:playlist:42' },
     { link: daily.link }, { link: heart.link }, { link: 'ncm:queue:bad' },
+    { link: 'ncm:heart:0' }, { link: 'ncm:heart:01' }, { link: 'ncm:heart:1:2' },
+    { link: 'ncm:heart', episode: 0 }, { link: 'ncm:heart', episode: 1.5 },
+    { link: 'ncm:heart:1', season: 2 }, { link: 'ncm:heart', episode: 'bad' },
     { link: '', id: 'ncm:song:1' }, { videoUrl: 'https://evil.test/a.mp3' },
     { link: 'invalid', id: 'ncm:song:1' }]) {
     const before = calls.length;
@@ -239,6 +263,6 @@ async function main() {
   assert.equal(sent.options.headers.Cookie, 'MUSIC_U=' + bareMusicU + '; os=pc');
   assert.equal((await context.loadLiked({ page: 1 })).length, 100);
   assert.ok(calls.every(c => c.url.startsWith('https://music.163.com/api/')));
-  console.log('PASS: account, queue playback, recommendations, heart refresh/stable identity, latest-list history aliases, full heart list, failed refresh retention, source/account isolation and playback rights');
+  console.log('PASS: account, queue playback, recommendations, stable heart episode resume after refresh, latest-list history aliases, full heart list, failed refresh retention, source/account isolation and playback rights');
 }
 main().catch(error => { console.error(error); process.exitCode = 1; });

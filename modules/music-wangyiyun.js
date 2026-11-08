@@ -1,7 +1,7 @@
 WidgetMetadata = {
   id: "mlitm.netease.account",
   title: "网易云音乐 · 我的音乐",
-  version: "1.1.2",
+  version: "1.1.3",
   requiredVersion: "0.0.1",
   description: "账号歌单、每日推荐、推荐歌单、漫游、心动模式与热歌榜，按账号权限在线播放。",
   author: "mlitm",
@@ -142,6 +142,11 @@ function ncmPage(p) {
 function ncmCover(url) { return String(url || "").replace(/^http:/, "https:"); }
 function ncmLink(raw) {
   if (raw === "ncm:heart") return { kind: "heart" };
+  var heart = /^ncm:heart:([1-9]\d*)$/.exec(String(raw || ""));
+  if (heart) {
+    var episode = Number(heart[1]);
+    return Number.isSafeInteger(episode) && episode <= 10000000 ? { kind: "heart", episode: episode } : null;
+  }
   var queue = /^ncm:queue:([a-z0-9]+-[a-z0-9]+)(?::(0|[1-9]\d*))?$/.exec(String(raw || ""));
   if (queue) {
     var queueOffset = Number(queue[2] || 0);
@@ -330,19 +335,31 @@ function ncmMigrateHeartAliases(profile) {
   Widget.storage.set(NCM_HEART_ALIASES, JSON.stringify(aliases));
 }
 
-async function ncmHeartDetail(config, profile) {
+async function ncmCurrentHeart(config, profile) {
   var queue = ncmStoredObject(NCM_HEART_CURRENT);
   if (queue.userId !== String(profile.userId) || !Array.isArray(queue.ids) || !queue.ids.length) {
     await loadHeart({});
     queue = ncmStoredObject(NCM_HEART_CURRENT);
   }
+  return queue;
+}
+
+function ncmHeartEpisode(song, episode) {
+  // Rex resumes by child identity; song IDs change when recommendations refresh.
+  song.id = song.link = "ncm:heart:" + episode;
+  song.episode = episode;
+  return song;
+}
+
+async function ncmHeartDetail(config, profile) {
+  var queue = await ncmCurrentHeart(config, profile);
   var item = ncmQueueItem(queue);
   item.episodeItems = [];
   // A single heart identity includes every song, so page changes do not create extra history cards.
   for (var offset = 0; offset < queue.ids.length; offset += NCM_PAGE) {
     var songs = await ncmSongs(queue.ids.slice(offset, offset + NCM_PAGE), config);
-    songs.forEach(function (song) { song.episode = queue.ids.indexOf(ncmLink(song.link).id) + 1; });
     await ncmFillEpisodePlayback(songs, config);
+    songs.forEach(function (song) { ncmHeartEpisode(song, queue.ids.indexOf(ncmLink(song.link).id) + 1); });
     item.episodeItems = item.episodeItems.concat(songs);
   }
   item.relatedItems = [];
@@ -477,7 +494,15 @@ async function loadDetail(link) {
   return ncmGuard(async function () {
     var config = ncmRead();
     var profile = await ncmProfile(config);
-    if (route.kind === "heart") return ncmHeartDetail(config, profile);
+    if (route.kind === "heart") {
+      if (!route.episode) return ncmHeartDetail(config, profile);
+      var queue = await ncmCurrentHeart(config, profile), id = queue.ids[route.episode - 1];
+      if (!id) ncmFail("当前心动列表没有这一集，请返回心动模式重新选择");
+      var songs = await ncmSongs([id], config);
+      if (!songs.length) ncmFail("网易云未返回这首歌曲的信息");
+      ncmAttachPlayback(songs[0], await ncmPlayback(id, config));
+      return ncmHeartEpisode(songs[0], route.episode);
+    }
     if (route.kind === "playlist") return ncmPlaylistDetail(route, config);
     if (route.kind === "queue") return ncmQueueDetail(route, config, profile);
     var items = await ncmSongs([route.id], config);
@@ -529,10 +554,23 @@ async function ncmPlayback(id, config) {
 
 async function loadResource(params) {
   var p = params || {}, route = ncmLink(p.link != null ? p.link : p.id);
-  if (!route || route.kind !== "song") return [];
+  if (!route || route.kind === "playlist") return [];
+  var episode = route.episode || (/^[1-9]\d*$/.test(String(p.episode)) ? Number(p.episode) : 0);
+  if (route.kind !== "song" && (!Number.isSafeInteger(episode) || episode < 1 ||
+      (p.season != null && String(p.season) !== "1"))) return [];
   return ncmGuard(async function () {
     var config = ncmConfig(p);
-    await ncmProfile(config);
-    return [await ncmPlayback(route.id, config)];
+    var profile = await ncmProfile(config), id = route.id;
+    if (route.kind !== "song") {
+      if (route.kind === "queue") {
+        ncmMigrateHeartAliases(profile);
+        var aliases = ncmStoredObject(NCM_HEART_ALIASES);
+        if (((aliases.users || {})[String(profile.userId)] || []).indexOf(route.id) < 0) return [];
+      }
+      var queue = await ncmCurrentHeart(config, profile);
+      id = queue.ids[episode - 1];
+      if (!id) ncmFail("当前心动列表没有这一集，请返回心动模式重新选择");
+    }
+    return [await ncmPlayback(id, config)];
   });
 }
