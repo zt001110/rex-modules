@@ -18,6 +18,10 @@ const song = id => ({ id: Number(id), name: 'Song ' + id, fee: 1,
 const playlist = { id: 42, name: 'Private list', trackCount: 205, specialType: 5, creator: { userId: 88 },
   coverImgUrl: 'http://p1.music.126.net/list.jpg', trackIds: Array.from({ length: 205 }, (_, i) => ({ id: i + 1 })) };
 let userPlaylists = [playlist];
+const album = { id: 73, name: 'Collected album', size: 105,
+  artists: [{ name: 'Album artist' }], picUrl: 'http://p1.music.126.net/album.jpg' };
+let albumList = [album], albumWrongId = false, albumIncomplete = false;
+const albumSongs = Array.from({ length: 105 }, (_, i) => song(1001 + i));
 const context = vm.createContext({ console, Date: TestDate, Widget: {
   storage: { get: k => storage.get(k), set: (k, v) => storage.set(k, v), remove: k => storage.delete(k) },
   http: { get: async (url, options) => {
@@ -29,6 +33,9 @@ const context = vm.createContext({ console, Date: TestDate, Widget: {
     if (url.endsWith('/song/enhance/play/mv/url')) return { data: { code: 200, data: { id: wrongId ? 999 : 777, url: denied ? null : 'http://vod.126.net/mv.mp4', r: 1080 } } };
     if (url.endsWith('/nuser/account/get')) body = expired ? { code: 200, profile: null } : { code: 200, profile: { userId: accountUser, nickname: 'Test' } };
     else if (url.endsWith('/user/playlist')) body = { code: 200, playlist: userPlaylists };
+    else if (url.endsWith('/album/sublist')) body = { code: 200, data: albumList };
+    else if (url.endsWith('/v1/album/73')) body = { code: 200,
+      album: { ...album, id: albumWrongId ? 74 : 73 }, songs: albumIncomplete ? albumSongs.slice(0, 1) : albumSongs };
     else if (url.endsWith('/song/like/get')) body = { code: 200, ids: Array.from({ length: 105 }, (_, i) => i + 1) };
     else if (url.endsWith('/v3/song/detail')) body = { code: 200, songs: JSON.parse(q.c).map(x => song(x.id)).reverse() };
     else if (url.endsWith('/v6/playlist/detail')) body = { code: 200, playlist };
@@ -51,7 +58,7 @@ vm.runInContext(fs.readFileSync(target, 'utf8'), context);
 async function main() {
   assert.equal(context.WidgetMetadata.id, 'mlitm.netease.account');
   assert.deepEqual(Array.from(context.WidgetMetadata.modules.filter(m => !m.type), m => m.id),
-    ['playlists', 'recommended', 'daily', 'hot', 'mvTop', 'mvLibrary', 'mvLatest', 'account']);
+    ['playlists', 'albums', 'recommended', 'daily', 'hot', 'mvTop', 'mvLibrary', 'mvLatest', 'account']);
   for (const fn of ['loadMvTop', 'loadMvLibrary', 'loadMvLatest']) {
     assert.equal((await context[fn]({ page: 2 }))[0].link, 'ncm:mv:777');
   }
@@ -71,6 +78,41 @@ async function main() {
   const cookie = 'MUSIC_U=fixture-only; __csrf=fixture-csrf';
   const account = await context.loadAccount({ cookie, quality: 'lossless' });
   assert.match(account[0].title, /Test/);
+  const albums = await context.loadMyAlbums({ page: 2 });
+  assert.equal(albums[0].link, 'ncm:album:73');
+  assert.equal(albums[0].title, 'Collected album');
+  assert.match(albums[0].description, /Album artist.*105/);
+  assert.equal(albums[0].coverUrl, 'https://p1.music.126.net/album.jpg');
+  let albumRequest = calls.find(c => c.url.endsWith('/album/sublist'));
+  assert.equal(albumRequest.options.params.offset, 30);
+  assert.equal(albumRequest.options.params.limit, 30);
+  assert.equal(albumRequest.options.headers.Cookie, cookie);
+  assert.equal(albumRequest.options.params.csrf_token, 'fixture-csrf');
+  let albumDetail = await context.loadDetail(albums[0].link);
+  assert.equal(albumDetail.id, albums[0].id);
+  assert.equal(albumDetail.episodeItems.length, 100);
+  assert.equal(albumDetail.episodeItems[0].link, 'ncm:song:1001');
+  assert.match(albumDetail.episodeItems[99].videoUrl, /audio-1100\.mp3/);
+  assert.equal(albumDetail.episodeItems[0].customHeaders.Cookie, undefined);
+  assert.equal(albumDetail.relatedItems[0].link, 'ncm:album:73:100');
+  albumDetail = await context.loadDetail(albumDetail.relatedItems[0].link);
+  assert.equal(albumDetail.episodeItems.length, 5);
+  assert.equal(albumDetail.episodeItems[0].episode, 101);
+  assert.equal(albumDetail.episodeItems[0].link, 'ncm:song:1101');
+  assert.equal(albumDetail.relatedItems[0].link, 'ncm:album:73');
+  assert.match((await context.loadResource({ link: 'ncm:album:73:100', episode: 103 }))[0].url, /audio-1103\.mp3/);
+  assert.equal(calls.filter(c => c.url.endsWith('/song/enhance/player/url/v1')).at(-1).options.params.ids, '[1103]');
+  await assert.rejects(context.loadResource({ link: 'ncm:album:73', episode: 106 }), /没有这一集/);
+  albumWrongId = true;
+  await assert.rejects(context.loadDetail('ncm:album:73'), /专辑不存在/);
+  await assert.rejects(context.loadResource({ link: 'ncm:album:73', episode: 1 }), /专辑不存在/);
+  albumWrongId = false; albumIncomplete = true;
+  await assert.rejects(context.loadDetail('ncm:album:73'), /完整专辑/);
+  albumIncomplete = false; albumList = [];
+  assert.equal((await context.loadMyAlbums({})).length, 0);
+  albumList = [album]; expired = true;
+  await assert.rejects(context.loadMyAlbums({}), /未识别登录/);
+  expired = false;
   const lists = await context.loadMyPlaylists({ page: 2 });
   assert.equal(lists[0].link, 'ncm:playlist:42');
   let sent = calls.find(c => c.url.endsWith('/user/playlist'));
@@ -265,6 +307,9 @@ async function main() {
   for (const p of [{}, { id: 550 }, { id: 'tt1234' }, { link: 'other:1' },
     { link: 'https://evil.test/ncm:song:1' }, { link: 'https://music.163.com.evil.test/song?id=1' },
     { link: 'ncm:song:1:2' }, { link: 'ncm:song:0' }, { link: 'ncm:playlist:42' },
+    { link: 'ncm:album:73' }, { link: 'ncm:album:0' }, { link: 'ncm:album:73:-1' },
+    { link: 'ncm:album:73', episode: 0 }, { link: 'ncm:album:73', episode: 1, season: 2 },
+    { link: 'bad', id: 'ncm:album:73', episode: 1 },
     { link: daily.link }, { link: heart.link }, { link: 'ncm:queue:bad' },
     { link: 'ncm:heart:0' }, { link: 'ncm:heart:01' }, { link: 'ncm:heart:1:2' },
     { link: 'ncm:heart', episode: 0 }, { link: 'ncm:heart', episode: 1.5 },
@@ -279,6 +324,9 @@ async function main() {
   assert.equal(await context.loadDetail('ncm:song:1?x=2'), null);
   assert.equal(calls.length, before);
   trial = true;
+  albumDetail = await context.loadDetail('ncm:album:73');
+  assert.ok(albumDetail.episodeItems.every(item => item.videoUrl === undefined));
+  await assert.rejects(context.loadResource({ link: 'ncm:album:73', episode: 1 }), /试听/);
   detail = await context.loadDetail('ncm:playlist:42');
   assert.ok(detail.episodeItems.every(item => item.videoUrl === undefined));
   await assert.rejects(context.loadResource({ link: 'ncm:song:1' }), /试听/);

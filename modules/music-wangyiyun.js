@@ -2,9 +2,9 @@ WidgetMetadata = {
   id: "mlitm.netease.account",
   title: "网易云音乐 · 我的音乐",
   iconurl: "https://raw.githubusercontent.com/zt001110/rex-icons/main/logos/official-ios/%E7%BD%91%E6%98%93%E4%BA%91%E9%9F%B3%E4%B9%90.png",
-  version: "1.2.3",
+  version: "1.2.4",
   requiredVersion: "0.0.1",
-  description: "账号歌单、每日推荐、推荐歌单、心动模式与热歌榜，按账号权限在线播放。",
+  description: "账号歌单、收藏专辑、每日推荐、推荐歌单、心动模式与热歌榜，按账号权限在线播放。",
   author: "mlitm",
   site: "https://music.163.com",
   detailCacheDuration: 0,
@@ -18,6 +18,9 @@ WidgetMetadata = {
   ],
   modules: [
     { id: "playlists", title: "我的歌单", functionName: "loadMyPlaylists", cacheDuration: 0, params: [
+      { name: "page", title: "页码", type: "page" }
+    ] },
+    { id: "albums", title: "我的专辑", functionName: "loadMyAlbums", cacheDuration: 0, params: [
       { name: "page", title: "页码", type: "page" }
     ] },
     { id: "recommended", title: "推荐歌单", functionName: "loadRecommendedPlaylists", cacheDuration: 0, params: [] },
@@ -140,7 +143,7 @@ function ncmLink(raw) {
     return Number.isSafeInteger(queueOffset) && queueOffset <= 10000000 ?
       { kind: "queue", id: queue[1], offset: queueOffset } : null;
   }
-  var match = /^ncm:(song|playlist):([1-9]\d*)(?::(0|[1-9]\d*))?$/.exec(String(raw || ""));
+  var match = /^ncm:(song|playlist|album):([1-9]\d*)(?::(0|[1-9]\d*))?$/.exec(String(raw || ""));
   if (!match || (match[1] === "song" && match[3] != null)) return null;
   var offset = Number(match[3] || 0);
   if (!Number.isSafeInteger(offset) || offset > 10000000) return null;
@@ -234,6 +237,52 @@ function ncmStoreQueue(queue) {
   }).slice(-11);
   queues.push(queue);
   Widget.storage.set(NCM_QUEUES, JSON.stringify(queues));
+}
+
+function ncmAlbum(album, offset) {
+  var key = "ncm:album:" + album.id + (offset ? ":" + offset : "");
+  var cover = ncmCover(album.picUrl), artists = album.artists || (album.artist ? [album.artist] : []);
+  return { id: key, link: key, type: "url", mediaType: "tv", title: album.name || "专辑 " + album.id,
+    coverUrl: cover, posterPath: cover, backdropPath: cover,
+    description: [artists.map(function (a) { return a.name; }).filter(Boolean).join(" / "),
+      Number(album.size || 0) + " 首", album.description].filter(Boolean).join(" · ") };
+}
+
+async function loadMyAlbums(params) {
+  return ncmGuard(async function () {
+    var config = ncmConfig(params), offset = (ncmPage(params) - 1) * 30;
+    await ncmProfile(config);
+    var data = await ncmApi("/album/sublist", { limit: 30, offset: offset, total: true }, config);
+    if (!Array.isArray(data.data)) ncmFail("网易云未返回收藏专辑列表，请检查登录状态");
+    return data.data.filter(function (album) { return album && ncmId(album.id); }).map(function (album) {
+      return ncmAlbum(album);
+    });
+  });
+}
+
+async function ncmAlbumData(id, config) {
+  var data = await ncmApi("/v1/album/" + id, {}, config);
+  if (!data.album || String(data.album.id) !== id) ncmFail("专辑不存在或账号没有访问权限");
+  if (!Array.isArray(data.songs)) ncmFail("网易云未返回专辑歌曲，请稍后重试");
+  if (Number(data.album.size) > data.songs.length) ncmFail("网易云未返回完整专辑歌曲，请稍后重试");
+  return data;
+}
+
+async function ncmAlbumDetail(route, config) {
+  var data = await ncmAlbumData(route.id, config);
+  var songs = data.songs.filter(function (song) { return song && ncmId(song.id); });
+  var item = ncmAlbum(data.album, route.offset);
+  item.episodeItems = songs.slice(route.offset, route.offset + NCM_PAGE).map(function (song, i) {
+    var entry = ncmSong(Object.assign({}, song, { al: Object.assign({
+      name: data.album.name, picUrl: data.album.picUrl
+    }, song.al || song.album || {}) }));
+    entry.episode = route.offset + i + 1;
+    return entry;
+  });
+  await ncmFillEpisodePlayback(item.episodeItems, config);
+  item.relatedItems = [];
+  ncmPageNeighbors(item, songs.length, route.offset, function (offset) { return ncmAlbum(data.album, offset); });
+  return item;
 }
 
 async function loadRecommendedPlaylists(params) {
@@ -540,6 +589,7 @@ async function loadDetail(link) {
       ncmAttachPlayback(songs[0], await ncmPlayback(id, config));
       return ncmHeartEpisode(songs[0], route.episode);
     }
+    if (route.kind === "album") return ncmAlbumDetail(route, config);
     if (route.kind === "playlist") return ncmPlaylistDetail(route, config);
     if (route.kind === "queue") return ncmQueueDetail(route, config, profile);
     var items = await ncmSongs([route.id], config);
@@ -601,6 +651,13 @@ async function loadResource(params) {
     var profile = await ncmProfile(config), id = route.id;
     if (route.kind !== "song") {
       var queue;
+      if (route.kind === "album") {
+        var albumData = await ncmAlbumData(route.id, config);
+        var albumSongs = albumData.songs.filter(function (song) { return song && ncmId(song.id); });
+        id = albumSongs[episode - 1] && String(albumSongs[episode - 1].id);
+        if (!ncmId(id)) ncmFail("当前专辑没有这一集，请返回专辑重新选择");
+        return [await ncmPlayback(id, config)];
+      }
       if (route.kind === "playlist") {
         var data = await ncmApi("/v6/playlist/detail", { id: route.id, n: 1 }, config);
         var list = data.playlist;
