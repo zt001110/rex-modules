@@ -1,8 +1,8 @@
 WidgetMetadata = {
   id: "mlitm.netease.account",
   title: "网易云音乐 · 我的音乐",
-  icon: "https://raw.githubusercontent.com/zt001110/rex-icons/main/logos/official-ios/%E7%BD%91%E6%98%93%E4%BA%91%E9%9F%B3%E4%B9%90.png",
-  version: "1.2.2",
+  iconurl: "https://raw.githubusercontent.com/zt001110/rex-icons/main/logos/official-ios/%E7%BD%91%E6%98%93%E4%BA%91%E9%9F%B3%E4%B9%90.png",
+  version: "1.2.3",
   requiredVersion: "0.0.1",
   description: "账号歌单、每日推荐、推荐歌单、心动模式与热歌榜，按账号权限在线播放。",
   author: "mlitm",
