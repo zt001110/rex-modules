@@ -1,7 +1,7 @@
 WidgetMetadata = {
   id: "personal.mlitm.hongguo-short-drama",
   title: "红果短剧",
-  version: "1.3.0",
+  version: "1.3.1",
   requiredVersion: "0.0.1",
   description: "红果真人短剧、漫剧和 AI 短剧的官方分类、榜单筛选、搜索和分集。请在全局参数填写自建 Worker 地址。",
   author: "桃子🍑",
@@ -369,6 +369,7 @@ async function loadDetail(link) {
     const available = directory.filter(row => row.available);
     const upcoming = directory.filter(row => !row.available);
     if (directory.length > 1) {
+      series.title = series.title.replace(/\s*第[一二三四五六七八九十百零〇两\d]+[季部]\s*$/, "").trim() || series.title;
       const summary = "共 " + available.length + " 季已上线" +
         (upcoming.length ? " · " + upcoming.map(row => "第" + row.season + "季").join("、") + "待上线" : "");
       series.description = summary + "\n" + series.description;
