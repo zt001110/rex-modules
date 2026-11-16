@@ -2,7 +2,7 @@ WidgetMetadata = {
   id: "mlitm.netease.account",
   title: "网易云音乐 · 我的音乐",
   iconurl: "https://raw.githubusercontent.com/zt001110/rex-icons/main/logos/official-ios/%E7%BD%91%E6%98%93%E4%BA%91%E9%9F%B3%E4%B9%90.png",
-  version: "1.2.6",
+  version: "1.2.11",
   requiredVersion: "0.0.1",
   description: "账号歌单、收藏专辑、每日推荐、推荐歌单、心动模式与热歌榜，按账号权限在线播放，支持同步歌词。",
   author: "mlitm",
@@ -37,6 +37,7 @@ WidgetMetadata = {
     ] },
     { id: "mvLatest", title: "最新MV", functionName: "loadMvLatest", cacheDuration: 300, params: [] },
     { id: "loadResource", title: "网易云账号播放", functionName: "loadResource", type: "stream", cacheDuration: 0, params: [] },
+    { id: "loadSubtitle", title: "网易云歌词", functionName: "loadSubtitle", type: "subtitle", cacheDuration: 0, params: [] },
     { id: "account", title: "账号状态", functionName: "loadAccount", cacheDuration: 0, params: [
       { name: "action", title: "账号操作", type: "enumeration", value: "status", enumOptions: [
         { title: "检查登录", value: "status" }, { title: "清除本模块登录缓存", value: "clear" }
@@ -96,7 +97,7 @@ function ncmFail(message) {
   throw error;
 }
 
-async function ncmApi(path, query, config) {
+async function ncmApi(path, query, config, timeout) {
   config = config || ncmRead();
   var headers = { Referer: NCM_SITE + "/", "User-Agent": "Mozilla/5.0" };
   if (config.cookie) headers.Cookie = config.cookie;
@@ -104,7 +105,7 @@ async function ncmApi(path, query, config) {
   var csrf = /(?:^|;\s*)__csrf=([^;]*)/.exec(config.cookie || "");
   if (csrf) params.csrf_token = csrf[1];
   var response = await Widget.http.get(NCM_SITE + "/api" + path, {
-    headers: headers, params: params, timeout: 15
+    headers: headers, params: params, timeout: timeout || 15
   });
   var status = Number(response.statusCode || response.status || 200);
   if (status >= 400) ncmFail("网易云 HTTP " + status + "，请检查网络或稍后重试");
@@ -601,10 +602,11 @@ async function loadDetail(link) {
 }
 
 function ncmAttachPlayback(item, resource) {
-  item.videoUrl = resource.url;
+  // Rex uses videoUrl as a direct resource and skips the stream's lyrics on that path.
+  if (!resource.subtitles) item.videoUrl = resource.url;
   item.customHeaders = resource.customHeaders;
   item.playerType = resource.playerType;
-  if (resource.subtitles) item.subtitles = resource.subtitles;
+  if (resource.subtitles) item.externalSubtitles = resource.subtitles;
 }
 
 async function ncmPlaybackTracks(ids, config) {
@@ -634,8 +636,7 @@ function ncmTrackResource(track, quality) {
       Referer: NCM_SITE + "/"
     },
     playerType: "app",
-    subtitles: [{ url: NCM_LYRICS + String(track.id) + ".lrc",
-      name: "歌词", language: "zh", headers: {}, isDefault: true }] };
+    subtitles: [ncmLyricTrack(String(track.id))] };
 }
 
 async function ncmPlayback(id, config) {
@@ -643,51 +644,110 @@ async function ncmPlayback(id, config) {
   return ncmTrackResource(tracks[id], config.quality || "standard");
 }
 
-async function loadResource(params) {
+function ncmLyricTrack(id) {
+  return {
+    id: "ncm:lyrics:" + id,
+    url: NCM_LYRICS + id + ".lrc",
+    name: "歌词", title: "歌词",
+    lang: "zh-Hans", language: "zh-Hans",
+    format: "lrc", type: "lrc",
+    fileName: "netease-" + id + ".lrc",
+    headers: {}, isDefault: true
+  };
+}
+
+function ncmPlaybackRoute(params) {
   var p = params || {}, route = ncmLink(p.link != null ? p.link : p.id);
-  if (!route) return [];
-  var episode = route.episode || (/^[1-9]\d*$/.test(String(p.episode)) ? Number(p.episode) : 0);
-  if (route.kind !== "song" && route.kind !== "mv" && (!Number.isSafeInteger(episode) || episode < 1 ||
-      (p.season != null && String(p.season) !== "1"))) return [];
-  return ncmGuard(async function () {
-    var config = ncmConfig(p);
-    if (route.kind === "mv") return [await ncmMvPlayback(route.id, config)];
-    var profile = await ncmProfile(config), id = route.id;
-    if (route.kind !== "song") {
-      var queue;
-      if (route.kind === "album") {
-        var albumData = await ncmAlbumData(route.id, config);
-        var albumSongs = albumData.songs.filter(function (song) { return song && ncmId(song.id); });
-        id = albumSongs[episode - 1] && String(albumSongs[episode - 1].id);
-        if (!ncmId(id)) ncmFail("当前专辑没有这一集，请返回专辑重新选择");
-        return [await ncmPlayback(id, config)];
-      }
-      if (route.kind === "playlist") {
-        var data = await ncmApi("/v6/playlist/detail", { id: route.id, n: 1 }, config);
-        var list = data.playlist;
-        if (!list || String(list.id) !== route.id) ncmFail("歌单不存在或账号没有访问权限");
-        var tracks = list.trackIds || list.tracks || [];
-        if (!list.trackIds && Number(list.trackCount) > tracks.length) ncmFail("网易云未返回完整歌单索引，请稍后重试");
-        id = tracks[episode - 1] && String(tracks[episode - 1].id);
-        if (!ncmId(id)) ncmFail("当前歌单没有这一集，请返回歌单重新选择");
-        return [await ncmPlayback(id, config)];
-      }
-      if (route.kind === "queue") {
-        ncmMigrateHeartAliases(profile);
-        var aliases = ncmStoredObject(NCM_HEART_ALIASES);
-        if (((aliases.users || {})[String(profile.userId)] || []).indexOf(route.id) < 0) {
-          queue = ncmReadQueues().filter(function (q) {
-            return q.id === route.id && q.userId === String(profile.userId) && Date.now() - q.created < 86400000;
-          })[0];
-          if (!queue) ncmFail("推荐队列已过期，请返回模块重新获取");
-        }
-      }
-      queue = queue || await ncmCurrentHeart(config, profile);
-      id = queue.ids[episode - 1];
-      if (!id) ncmFail("当前心动列表没有这一集，请返回心动模式重新选择");
+  if (!route) return null;
+  if (route.kind === "song" || route.kind === "mv") return route;
+  // Rex can retain the original link while advancing the episode in the player.
+  var episode = /^[1-9]\d*$/.test(String(p.episode)) ? Number(p.episode) : route.episode;
+  if (!Number.isSafeInteger(episode) || episode < 1 ||
+      (p.season != null && String(p.season) !== "1")) return null;
+  route.episode = episode;
+  return route;
+}
+
+async function ncmResolveSongId(route, config, profile) {
+  if (route.kind === "song") return route.id;
+  var episode = route.episode, id;
+  if (route.kind === "album") {
+    var albumData = await ncmAlbumData(route.id, config);
+    var songs = albumData.songs.filter(function (song) { return song && ncmId(song.id); });
+    id = songs[episode - 1] && String(songs[episode - 1].id);
+    if (!ncmId(id)) ncmFail("当前专辑没有这一集，请返回专辑重新选择");
+    return id;
+  }
+  if (route.kind === "playlist") {
+    var data = await ncmApi("/v6/playlist/detail", { id: route.id, n: 1 }, config);
+    var list = data.playlist;
+    if (!list || String(list.id) !== route.id) ncmFail("歌单不存在或账号没有访问权限");
+    var tracks = list.trackIds || list.tracks || [];
+    if (!list.trackIds && Number(list.trackCount) > tracks.length) ncmFail("网易云未返回完整歌单索引，请稍后重试");
+    id = tracks[episode - 1] && String(tracks[episode - 1].id);
+    if (!ncmId(id)) ncmFail("当前歌单没有这一集，请返回歌单重新选择");
+    return id;
+  }
+  var queue;
+  if (route.kind === "queue") {
+    ncmMigrateHeartAliases(profile);
+    var aliases = ncmStoredObject(NCM_HEART_ALIASES);
+    if (((aliases.users || {})[String(profile.userId)] || []).indexOf(route.id) < 0) {
+      queue = ncmReadQueues().filter(function (q) {
+        return q.id === route.id && q.userId === String(profile.userId) && Date.now() - q.created < 86400000;
+      })[0];
+      if (!queue) ncmFail("推荐队列已过期，请返回模块重新获取");
     }
-    return [await ncmPlayback(id, config)];
+  }
+  queue = queue || await ncmCurrentHeart(config, profile);
+  id = queue.ids[episode - 1];
+  if (!id) ncmFail("当前心动列表没有这一集，请返回心动模式重新选择");
+  return id;
+}
+
+async function loadResource(params) {
+  var route = ncmPlaybackRoute(params);
+  if (!route) return [];
+  return ncmGuard(async function () {
+    var config = ncmConfig(params);
+    if (route.kind === "mv") return [await ncmMvPlayback(route.id, config)];
+    var profile = await ncmProfile(config);
+    return [await ncmPlayback(await ncmResolveSongId(route, config, profile), config)];
   });
+}
+
+async function loadSubtitle(params) {
+  var route = ncmPlaybackRoute(params);
+  if (!route || route.kind === "mv") return [];
+  try {
+    var config = ncmRead();
+    var profile = route.kind === "heart" || route.kind === "queue" ? await ncmProfile(config) : null;
+    var songId = await ncmResolveSongId(route, config, profile);
+    var track = ncmLyricTrack(songId);
+    // Give each reload its own identity, including repeats of the same song.
+    var refresh = Date.now();
+    track.id += ":" + refresh;
+    track.url += "?reload=" + refresh;
+    track.file = track.url;
+    track.sourceUrl = track.url;
+    track.label = track.name;
+    track.mimeType = "text/plain; charset=utf-8";
+    track.default = true;
+    track.selected = true;
+
+    // Use the same source as the Worker for inline lyrics. Keep its direct link as a fallback.
+    try {
+      var data = await ncmApi("/song/lyric", { id: songId, lv: 1 }, {}, 4);
+      var text = data.lrc && data.lrc.lyric;
+      if (typeof text === "string" && /^\[\d{1,4}:[0-5]?\d(?:[.:]\d{1,3})?\]/m.test(text)) {
+        track.data = text;
+        track.content = text;
+      }
+    } catch (_) {}
+    return [track];
+  } catch (_) {
+    return [];
+  }
 }
 
 function ncmMv(mv) {
