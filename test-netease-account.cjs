@@ -242,14 +242,17 @@ async function main() {
     const expected = p.episode === 101 ? 800 : 700;
     assert.match(result[0].url, new RegExp('audio-' + expected + '\\.mp3'));
     assert.equal(calls.filter(c => c.url.endsWith('/song/enhance/player/url/v1')).at(-1).options.params.ids, '[' + expected + ']');
-    assert.ok(result[0].subtitles[0].url.endsWith('/netease/' + expected + '.lrc'));
+    assert.match(result[0].subtitles[0].url, new RegExp('/netease/' + expected + '/[0-9]+\\.lrc$'));
+    assert.equal(result[0].subtitles[0].content, '[00:01.00]first line\n[00:04.50]second line');
+    assert.equal(result[0].subtitles, result[0].externalSubtitles);
+    assert.equal(result[0].subtitles, result[0].subtitleTracks);
   }
   await assert.rejects(context.loadResource({ link: 'ncm:heart:146' }), /没有这一集/);
   const lookupsBeforeLyrics = calls.filter(c => c.url.endsWith('/song/enhance/player/url/v1')).length;
   const firstLyric = (await context.loadSubtitle({ link: 'ncm:heart:1', episode: 1 }))[0];
   const nextLyric = (await context.loadSubtitle({ link: 'ncm:heart:1', episode: 2 }))[0];
-  assert.match(firstLyric.url, /700\.lrc\?reload=\d+$/);
-  assert.match(nextLyric.url, /701\.lrc\?reload=\d+$/);
+  assert.match(firstLyric.url, /700\/\d+\.lrc$/);
+  assert.match(nextLyric.url, /701\/\d+\.lrc$/);
   assert.notEqual(firstLyric.id, nextLyric.id);
   assert.equal(nextLyric.format, 'lrc');
   assert.match(nextLyric.content, /^\[00:01\.00\]/);

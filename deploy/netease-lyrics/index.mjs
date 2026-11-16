@@ -48,7 +48,7 @@ export default {
     }
     const path = new URL(request.url).pathname;
     if (path === "/health") return reply('{"ok":true}', 200, "application/json");
-    const match = /^\/netease\/([1-9]\d{0,18})\.(srt|lrc)$/.exec(path);
+    const match = /^\/netease\/([1-9]\d{0,18})(?:\/\d{1,16})?\.(srt|lrc)$/.exec(path);
     if (!match) return reply("Not found", 404);
     try {
       const signal = AbortSignal.timeout(4500);

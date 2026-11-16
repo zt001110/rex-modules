@@ -2,7 +2,7 @@ WidgetMetadata = {
   id: "mlitm.netease.account",
   title: "网易云音乐 · 我的音乐",
   iconurl: "https://raw.githubusercontent.com/zt001110/rex-icons/main/logos/official-ios/%E7%BD%91%E6%98%93%E4%BA%91%E9%9F%B3%E4%B9%90.png",
-  version: "1.2.11",
+  version: "1.2.14",
   requiredVersion: "0.0.1",
   description: "账号歌单、收藏专辑、每日推荐、推荐歌单、心动模式与热歌榜，按账号权限在线播放，支持同步歌词。",
   author: "mlitm",
@@ -712,7 +712,11 @@ async function loadResource(params) {
     var config = ncmConfig(params);
     if (route.kind === "mv") return [await ncmMvPlayback(route.id, config)];
     var profile = await ncmProfile(config);
-    return [await ncmPlayback(await ncmResolveSongId(route, config, profile), config)];
+    var songId = await ncmResolveSongId(route, config, profile);
+    var resource = await ncmPlayback(songId, config);
+    var tracks = [await ncmResolvedLyricTrack(songId)];
+    resource.subtitles = resource.externalSubtitles = resource.subtitleTracks = tracks;
+    return [resource];
   });
 }
 
@@ -723,31 +727,37 @@ async function loadSubtitle(params) {
     var config = ncmRead();
     var profile = route.kind === "heart" || route.kind === "queue" ? await ncmProfile(config) : null;
     var songId = await ncmResolveSongId(route, config, profile);
-    var track = ncmLyricTrack(songId);
-    // Give each reload its own identity, including repeats of the same song.
-    var refresh = Date.now();
-    track.id += ":" + refresh;
-    track.url += "?reload=" + refresh;
-    track.file = track.url;
-    track.sourceUrl = track.url;
-    track.label = track.name;
-    track.mimeType = "text/plain; charset=utf-8";
-    track.default = true;
-    track.selected = true;
-
-    // Use the same source as the Worker for inline lyrics. Keep its direct link as a fallback.
-    try {
-      var data = await ncmApi("/song/lyric", { id: songId, lv: 1 }, {}, 4);
-      var text = data.lrc && data.lrc.lyric;
-      if (typeof text === "string" && /^\[\d{1,4}:[0-5]?\d(?:[.:]\d{1,3})?\]/m.test(text)) {
-        track.data = text;
-        track.content = text;
-      }
-    } catch (_) {}
-    return [track];
+    return [await ncmResolvedLyricTrack(songId)];
   } catch (_) {
     return [];
   }
+}
+
+async function ncmResolvedLyricTrack(songId) {
+  var track = ncmLyricTrack(songId);
+  // Give each reload its own identity, including repeats of the same song.
+  var refresh = Date.now();
+  track.id += ":" + refresh;
+  // Keep the extension at the end of the URL when refreshing a track.
+  track.url = NCM_LYRICS + songId + "/" + refresh + ".lrc";
+  track.file = track.url;
+  track.sourceUrl = track.url;
+  track.label = track.name;
+  track.mimeType = "text/plain; charset=utf-8";
+  track.default = true;
+  track.selected = true;
+
+  // Use the same source as the Worker for inline lyrics. Keep its direct link as a fallback.
+  try {
+    var data = await ncmApi("/song/lyric", { id: songId, lv: 1 }, {}, 4);
+    var text = data.lrc && data.lrc.lyric;
+    if (typeof text === "string" && /^\[\d{1,4}:[0-5]?\d(?:[.:]\d{1,3})?\]/m.test(text)) {
+      track.data = text;
+      track.content = text;
+    }
+  } catch (_) {}
+  track.languageIdentifier = track.language;
+  return track;
 }
 
 function ncmMv(mv) {
