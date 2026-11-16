@@ -154,7 +154,7 @@ async function main() {
   const beforeDetail = calls.filter(c => c.url.endsWith('/song/enhance/player/url/v1')).length;
   const songDetail = await context.loadDetail('ncm:song:101');
   assert.match(songDetail.videoUrl, /audio-101\.mp3/);
-  assert.match(songDetail.subtitles[0].url, /^https:\/\/[^/]+\/netease\/101\.srt$/);
+  assert.match(songDetail.subtitles[0].url, /^https:\/\/[^/]+\/netease\/101\.lrc$/);
   assert.equal(songDetail.subtitles[0].isDefault, true);
   assert.equal(Object.keys(songDetail.subtitles[0].headers).length, 0);
   assert.equal(calls.filter(c => c.url.endsWith('/song/enhance/player/url/v1')).length, beforeDetail + 1);
@@ -241,7 +241,7 @@ async function main() {
     const expected = p.episode === 101 ? 800 : 700;
     assert.match(result[0].url, new RegExp('audio-' + expected + '\\.mp3'));
     assert.equal(calls.filter(c => c.url.endsWith('/song/enhance/player/url/v1')).at(-1).options.params.ids, '[' + expected + ']');
-    assert.ok(result[0].subtitles[0].url.endsWith('/netease/' + expected + '.srt'));
+    assert.ok(result[0].subtitles[0].url.endsWith('/netease/' + expected + '.lrc'));
   }
   await assert.rejects(context.loadResource({ link: 'ncm:heart:146' }), /没有这一集/);
   const playerCalls = calls.filter(c => c.url.endsWith('/song/enhance/player/url/v1')).length;

@@ -48,7 +48,7 @@ export default {
     }
     const path = new URL(request.url).pathname;
     if (path === "/health") return reply('{"ok":true}', 200, "application/json");
-    const match = /^\/netease\/([1-9]\d{0,18})\.srt$/.exec(path);
+    const match = /^\/netease\/([1-9]\d{0,18})\.(srt|lrc)$/.exec(path);
     if (!match) return reply("Not found", 404);
     try {
       const signal = AbortSignal.timeout(4500);
@@ -67,6 +67,7 @@ export default {
       const srt = !data.nolyric && !data.uncollected && typeof lrc === "string" && lrc.length <= 200000
         ? lrcToSrt(lrc) : "";
       if (!srt) return reply("No timed lyrics", 404, "text/plain", "public, max-age=300");
+      if (match[2] === "lrc") return reply(lrc, 200, "text/plain", "public, max-age=3600");
       return reply(srt, 200, "application/x-subrip", "public, max-age=3600");
     } catch (error) {
       console.warn("NetEase lyric upstream:", (error.errors || [error]).map(e => e.message).join("; "));
