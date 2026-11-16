@@ -67,7 +67,9 @@ async function main() {
   assert.equal(calls.filter(c => c.url.endsWith('/mv/all')).at(-1).options.params.type, '现场版');
   assert.equal(calls.find(c => c.url.endsWith('/mv/first')).options.params.area, undefined);
   assert.equal((await context.loadDetail('ncm:mv:777')).videoUrl, 'https://vod.126.net/mv.mp4');
-  assert.equal((await context.loadResource({ link: 'ncm:mv:777' }))[0].url, 'https://vod.126.net/mv.mp4');
+  const [mvResource] = await context.loadResource({ link: 'ncm:mv:777' });
+  assert.equal(mvResource.url, 'https://vod.126.net/mv.mp4');
+  assert.equal(mvResource.subtitles, undefined);
   wrongId = true;
   await assert.rejects(context.loadResource({ link: 'ncm:mv:777' }), /暂无可播放/);
   wrongId = false; denied = true;
@@ -152,6 +154,9 @@ async function main() {
   const beforeDetail = calls.filter(c => c.url.endsWith('/song/enhance/player/url/v1')).length;
   const songDetail = await context.loadDetail('ncm:song:101');
   assert.match(songDetail.videoUrl, /audio-101\.mp3/);
+  assert.match(songDetail.subtitles[0].url, /^https:\/\/[^/]+\/netease\/101\.srt$/);
+  assert.equal(songDetail.subtitles[0].isDefault, true);
+  assert.equal(Object.keys(songDetail.subtitles[0].headers).length, 0);
   assert.equal(calls.filter(c => c.url.endsWith('/song/enhance/player/url/v1')).length, beforeDetail + 1);
   let resources = await context.loadResource({ link: liked[0].link });
   assert.match(resources[0].url, /^https:\/\//);
@@ -236,6 +241,7 @@ async function main() {
     const expected = p.episode === 101 ? 800 : 700;
     assert.match(result[0].url, new RegExp('audio-' + expected + '\\.mp3'));
     assert.equal(calls.filter(c => c.url.endsWith('/song/enhance/player/url/v1')).at(-1).options.params.ids, '[' + expected + ']');
+    assert.ok(result[0].subtitles[0].url.endsWith('/netease/' + expected + '.srt'));
   }
   await assert.rejects(context.loadResource({ link: 'ncm:heart:146' }), /没有这一集/);
   const playerCalls = calls.filter(c => c.url.endsWith('/song/enhance/player/url/v1')).length;

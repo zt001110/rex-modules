@@ -2,9 +2,9 @@ WidgetMetadata = {
   id: "mlitm.netease.account",
   title: "网易云音乐 · 我的音乐",
   iconurl: "https://raw.githubusercontent.com/zt001110/rex-icons/main/logos/official-ios/%E7%BD%91%E6%98%93%E4%BA%91%E9%9F%B3%E4%B9%90.png",
-  version: "1.2.4",
+  version: "1.2.5",
   requiredVersion: "0.0.1",
-  description: "账号歌单、收藏专辑、每日推荐、推荐歌单、心动模式与热歌榜，按账号权限在线播放。",
+  description: "账号歌单、收藏专辑、每日推荐、推荐歌单、心动模式与热歌榜，按账号权限在线播放，支持同步歌词。",
   author: "mlitm",
   site: "https://music.163.com",
   detailCacheDuration: 0,
@@ -50,6 +50,7 @@ WidgetMetadata = {
 };
 
 var NCM_SITE = "https://music.163.com";
+var NCM_LYRICS = "https://rex-netease-lyrics.mlitm.workers.dev/netease/";
 var NCM_STORAGE = "ncm.account.v1";
 var NCM_QUEUES = "ncm.queues.v1";
 var NCM_HEART_CACHE = "ncm.heart.daily.v1";
@@ -603,6 +604,7 @@ function ncmAttachPlayback(item, resource) {
   item.videoUrl = resource.url;
   item.customHeaders = resource.customHeaders;
   item.playerType = resource.playerType;
+  if (resource.subtitles) item.subtitles = resource.subtitles;
 }
 
 async function ncmPlaybackTracks(ids, config) {
@@ -631,7 +633,9 @@ function ncmTrackResource(track, quality) {
       "User-Agent": "Mozilla/5.0",
       Referer: NCM_SITE + "/"
     },
-    playerType: "app" };
+    playerType: "app",
+    subtitles: [{ url: NCM_LYRICS + String(track.id) + ".srt",
+      name: "歌词", language: "und", headers: {}, isDefault: true }] };
 }
 
 async function ncmPlayback(id, config) {
