@@ -1,7 +1,7 @@
 WidgetMetadata = {
   id: "personal.mlitm.hongguo-short-drama",
   title: "红果短剧",
-  version: "1.4.0",
+  version: "1.4.1",
   requiredVersion: "0.0.1",
   description: "红果真人短剧、漫剧和 AI 短剧的官方分类、榜单筛选、搜索和分集。请在全局参数填写带访问密钥的自建 Worker 地址。",
   author: "桃子🍑",
@@ -36,6 +36,7 @@ const HG_CACHE_MS = 180000;
 const HG_CACHE_KEY = "hongguo-short-drama:recent-season:v3";
 const hgPending = new Map();
 let hgRecent;
+let hgRecentDirectory;
 
 function hgId(value) {
   return typeof value === "string" && /^[1-9]\d{0,20}$/.test(value);
@@ -87,6 +88,10 @@ function hgRoute(value) {
   }
   const season = /^mlitm-hongguo:series:([1-9]\d{0,20})$/.exec(identity);
   if (season) return { seriesId: season[1], worker };
+  const video = /^mlitm-hongguo:video:([1-9]\d{0,20}):([1-9]\d{0,5}):([1-9]\d{0,5}):([1-9]\d{0,20})$/.exec(identity);
+  if (video) {
+    return { seriesId: video[1], season: Number(video[2]), episode: Number(video[3]), episodeId: video[4], worker };
+  }
   const episode = /^mlitm-hongguo:episode:([1-9]\d{0,20}):([1-9]\d{0,5}):([1-9]\d{0,20})$/.exec(identity);
   if (episode) return { seriesId: episode[1], episode: Number(episode[2]), episodeId: episode[3], worker };
   const pending = /^mlitm-hongguo:season-episode:([1-9]\d{0,20}):([1-9]\d{0,5}):([1-9]\d{0,5})$/.exec(identity);
@@ -281,24 +286,27 @@ async function search(params = {}) {
   return results;
 }
 
-function hgReadRecent(worker, seriesId) {
-  if (!hgRecent) {
+function hgReadRecent(worker, seriesId, withDirectory) {
+  const slot = withDirectory ? HG_CACHE_KEY + ":directory" : HG_CACHE_KEY;
+  let entry = withDirectory ? hgRecentDirectory : hgRecent;
+  if (!entry) {
     try {
-      const stored = Widget.storage?.get(HG_CACHE_KEY);
-      hgRecent = typeof stored === "string" ? JSON.parse(stored) : stored;
+      const stored = Widget.storage?.get(slot);
+      entry = typeof stored === "string" ? JSON.parse(stored) : stored;
     } catch (_) {
       return null;
     }
   }
-  const age = Date.now() - hgRecent?.savedAt;
-  return hgRecent?.worker === worker && hgRecent?.data?.id === seriesId && age >= 0 && age < HG_CACHE_MS ? hgRecent.data : null;
+  const age = Date.now() - entry?.savedAt;
+  return entry?.worker === worker && entry?.data?.id === seriesId && age >= 0 && age < HG_CACHE_MS ? entry.data : null;
 }
 
 async function hgSeason(worker, seriesId, withDirectory = false) {
   const key = worker + "/" + seriesId + (withDirectory ? "/directory" : "");
   if (hgPending.has(key)) return hgPending.get(key);
-  const recent = hgReadRecent(worker, seriesId);
-  if (recent && (!withDirectory || recent.directory)) return recent;
+  const recent = hgReadRecent(worker, seriesId, true) ||
+    (!withDirectory ? hgReadRecent(worker, seriesId, false) : null);
+  if (recent) return recent;
   const request = (async () => {
     const data = await hgGet("/v1/series/" + seriesId + (withDirectory ? "" : "?episodesOnly=1"), worker);
     if (data.id !== seriesId || typeof data.title !== "string" || !Array.isArray(data.episodes)) {
@@ -314,8 +322,11 @@ async function hgSeason(worker, seriesId, withDirectory = false) {
       directory: withDirectory ? hgDirectory(data, seriesId) : null
     };
     if (episodes.length) {
-      hgRecent = { savedAt: Date.now(), worker, data: season };
-      try { Widget.storage?.set(HG_CACHE_KEY, JSON.stringify(hgRecent)); } catch (_) {}
+      const entry = { savedAt: Date.now(), worker, data: season };
+      if (withDirectory) hgRecentDirectory = entry;
+      else hgRecent = entry;
+      const slot = withDirectory ? HG_CACHE_KEY + ":directory" : HG_CACHE_KEY;
+      try { Widget.storage?.set(slot, JSON.stringify(entry)); } catch (_) {}
     }
     return season;
   })();
@@ -359,8 +370,11 @@ function hgEpisodeItem(series, episode, worker, cover, seriesName) {
   const id = episode.id
     ? "mlitm-hongguo:episode:" + series.id + ":" + episode.number + ":" + episode.id
     : "mlitm-hongguo:season-episode:" + series.id + ":" + series.season + ":" + episode.number;
+  const identity = episode.id
+    ? "mlitm-hongguo:video:" + series.id + ":" + series.season + ":" + episode.number + ":" + episode.id
+    : id;
   return {
-    id, link: id + "@" + hgWorkerLink(worker), type: "url", mediaType: "tv",
+    id, link: identity + "@" + hgWorkerLink(worker), type: "url", mediaType: "tv",
     title: "第" + episode.number + "集", seriesName, coverUrl: cover,
     season: series.season, seasonNumber: series.season,
     episode: episode.number, episodeNumber: episode.number, duration: episode.duration || undefined
@@ -404,7 +418,7 @@ async function loadDetail(link) {
       const item = hgEpisodeItem(row, episode, worker, cover, series.title);
       if (data.directory && index === 0) {
         // Rex filters these cards locally when the viewer switches seasons.
-        item.title = "共" + available.length + "季 · 第" + row.season + "季 · " + episodes.length + "集";
+        item.description = "共" + available.length + "季 · 第" + row.season + "季 · " + episodes.length + "集";
       }
       return item;
     });
@@ -417,22 +431,25 @@ async function loadResource(params = {}) {
   if (!route) return [];
   const worker = params.workerUrl ? hgConfiguredWorker(params.workerUrl) : hgSavedWorker();
   if (!worker) throw new Error("请先在全局参数填写 Worker 地址");
+  const requestedSeason = hgPositive(params.season ?? params.seasonNumber);
   const requestedEpisode = hgPositive(params.episode ?? params.episodeNumber);
-  let episodeId = route.episodeId;
-  if (route.episode && requestedEpisode && requestedEpisode !== route.episode) return [];
+  const coordinatesMatch = (!requestedSeason || requestedSeason === route.season) &&
+    (!requestedEpisode || requestedEpisode === route.episode);
+  let episodeId = coordinatesMatch ? route.episodeId : undefined;
+
   if (!episodeId) {
-    const requestedSeason = hgPositive(params.season ?? params.seasonNumber);
-    if (route.season && requestedSeason && requestedSeason !== route.season) return [];
-    let data = await hgSeason(worker, route.seriesId);
-    if (!route.season && requestedSeason && requestedSeason !== data.season) {
-      data = await hgSeason(worker, route.seriesId, true);
-      if (requestedSeason !== data.season) {
-        const target = data.directory.find(row => row.available && row.season === requestedSeason);
-        if (!target) return [];
-        data = await hgSeason(worker, target.id);
-      }
+    let targetId = route.seriesId;
+    if (requestedSeason && requestedSeason !== route.season) {
+      // Rex can retain the original card link when it changes seasons.
+      // The current picker coordinates take precedence over that link.
+      const origin = await hgSeason(worker, route.seriesId, true);
+      const target = origin.directory.find(row => row.available && row.season === requestedSeason);
+      if (!target) return [];
+      targetId = target.id;
     }
-    const matches = data.episodes.filter(ep => ep.number === (route.episode || requestedEpisode || 1));
+    const data = await hgSeason(worker, targetId);
+    const episodeNumber = requestedEpisode || (targetId === route.seriesId ? route.episode : 0) || 1;
+    const matches = data.episodes.filter(ep => ep.number === episodeNumber);
     if (matches.length !== 1) return [];
     episodeId = matches[0].id;
   }
