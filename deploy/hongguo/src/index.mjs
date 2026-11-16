@@ -83,8 +83,7 @@ async function catalogResponse(request, env) {
       await response.body?.cancel();
       return Response.json({ error: "Catalog endpoint redirected" }, { status: 502 });
     }
-    if (response.ok && request.method === "GET" && url.pathname.startsWith("/v1/series/") &&
-        url.searchParams.get("episodesOnly") === "1") {
+    if (response.ok && request.method === "GET" && url.pathname.startsWith("/v1/series/")) {
       const data = await response.json();
       if (Array.isArray(data?.episodes)) {
         return Response.json({

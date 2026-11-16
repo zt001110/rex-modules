@@ -14,6 +14,7 @@
 | --- | --- |
 | 目录 API | `GET /v1/search?q=…&page=1` 和 `GET /v1/rankings?group=…&rank=…&page=1` 返回 `{ items: [{ id, title, cover, description, season }] }`。榜单可带 `filter`。 |
 | 目录 API | `GET /v1/series/<剧集ID>?episodesOnly=1` 返回 `{ id, title, cover, description, season, episodes: [{ id, episode, duration, disabled }] }`。 |
+| 目录 API | `GET /v1/series/<剧集ID>` 返回当前季详情、`complete: true` 和完整的 `seasons: [{ id, season, episodeCount, available }]`。已上线季度使用实际 ID，已公布但未上线的季度用 `{ id: null, season, available: false }`。如提供 `availableSeasonCount` 和 `announcedSeasonCount`，模块会核对目录数量。 |
 | 播放模型 Worker | `POST /<RELAY_KEY>/play` 接收 `{ vids: ["分集ID"] }`，返回 `{ ok: true, models: { "<分集ID>": <播放模型> } }`。 |
 
 目录和分集 ID 应保留为字符串。播放模型 Worker 只提供取流能力时，需要同时准备目录 API。此模板提供统一入口，目录 API 和播放模型 Worker 由部署者自行维护。

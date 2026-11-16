@@ -1,7 +1,7 @@
 WidgetMetadata = {
   id: "personal.mlitm.hongguo-short-drama",
   title: "红果短剧",
-  version: "1.2.0",
+  version: "1.3.0",
   requiredVersion: "0.0.1",
   description: "红果真人短剧、漫剧和 AI 短剧的官方分类、榜单筛选、搜索和分集。请在全局参数填写自建 Worker 地址。",
   author: "桃子🍑",
@@ -33,7 +33,7 @@ const HG_COMIC_RECOMMENDED = "comic_series_hot_rank";
 const HG_COMIC_POPULAR = "comic_series_hot_play";
 const HG_MENUS = hgOfficialMenus();
 const HG_CACHE_MS = 180000;
-const HG_CACHE_KEY = "hongguo-short-drama:recent-season:v2";
+const HG_CACHE_KEY = "hongguo-short-drama:recent-season:v3";
 const hgPending = new Map();
 let hgRecent;
 
@@ -76,7 +76,9 @@ function hgRoute(value) {
   const season = /^mlitm-hongguo:series:([1-9]\d{0,20})$/.exec(identity);
   if (season) return { seriesId: season[1], worker };
   const episode = /^mlitm-hongguo:episode:([1-9]\d{0,20}):([1-9]\d{0,5}):([1-9]\d{0,20})$/.exec(identity);
-  return episode ? { seriesId: episode[1], episode: Number(episode[2]), episodeId: episode[3], worker } : null;
+  if (episode) return { seriesId: episode[1], episode: Number(episode[2]), episodeId: episode[3], worker };
+  const pending = /^mlitm-hongguo:season-episode:([1-9]\d{0,20}):([1-9]\d{0,5}):([1-9]\d{0,5})$/.exec(identity);
+  return pending ? { seriesId: pending[1], season: Number(pending[2]), episode: Number(pending[3]), worker } : null;
 }
 
 // Rex requires synchronous enumeration metadata. The options below are from
@@ -274,13 +276,13 @@ function hgReadRecent(worker, seriesId) {
   return hgRecent?.worker === worker && hgRecent?.data?.id === seriesId && age >= 0 && age < HG_CACHE_MS ? hgRecent.data : null;
 }
 
-async function hgSeason(worker, seriesId) {
-  const key = worker + "/" + seriesId;
+async function hgSeason(worker, seriesId, withDirectory = false) {
+  const key = worker + "/" + seriesId + (withDirectory ? "/directory" : "");
   if (hgPending.has(key)) return hgPending.get(key);
   const recent = hgReadRecent(worker, seriesId);
-  if (recent) return recent;
+  if (recent && (!withDirectory || recent.directory)) return recent;
   const request = (async () => {
-    const data = await hgGet("/v1/series/" + seriesId + "?episodesOnly=1", worker);
+    const data = await hgGet("/v1/series/" + seriesId + (withDirectory ? "" : "?episodesOnly=1"), worker);
     if (data.id !== seriesId || typeof data.title !== "string" || !Array.isArray(data.episodes)) {
       throw new Error("红果接口未返回对应分集");
     }
@@ -290,7 +292,8 @@ async function hgSeason(worker, seriesId) {
       .sort((a, b) => a.number - b.number);
     const season = {
       id: data.id, title: data.title, cover: data.cover, description: data.description,
-      season: hgPositive(data.season) || 1, episodes
+      season: hgPositive(data.season) || 1, episodes,
+      directory: withDirectory ? hgDirectory(data, seriesId) : null
     };
     if (episodes.length) {
       hgRecent = { savedAt: Date.now(), worker, data: season };
@@ -306,22 +309,79 @@ async function hgSeason(worker, seriesId) {
   }
 }
 
+function hgDirectory(data, seriesId) {
+  const rows = data.seasons;
+  if (data.complete !== true || !Array.isArray(rows) || !rows.length) {
+    throw new Error("红果未返回完整的季目录");
+  }
+  const items = [];
+  const bySeason = new Set(), byId = new Set();
+  for (const entry of rows) {
+    const season = hgPositive(entry?.season);
+    if (!season || bySeason.has(season)) throw new Error("红果季号不完整或重复");
+    bySeason.add(season);
+    if (entry.available === false && entry.id === null) {
+      items.push({ season, available: false });
+      continue;
+    }
+    if (!hgId(entry.id) || byId.has(entry.id)) throw new Error("红果季度 ID 不完整或重复");
+    byId.add(entry.id);
+    items.push({ ...entry, season, available: true, episodeCount: hgPositive(entry.episodeCount) });
+  }
+  const current = items.find(entry => entry.id === seriesId);
+  if (!current || current.season !== hgPositive(data.season) ||
+      (hgPositive(data.availableSeasonCount) && byId.size !== hgPositive(data.availableSeasonCount)) ||
+      (hgPositive(data.announcedSeasonCount) && items.length !== hgPositive(data.announcedSeasonCount))) {
+    throw new Error("红果返回的季度数量不完整");
+  }
+  return items.sort((a, b) => a.season - b.season);
+}
+
+function hgEpisodeItem(series, episode, worker, cover, seriesName) {
+  const id = episode.id
+    ? "mlitm-hongguo:episode:" + series.id + ":" + episode.number + ":" + episode.id
+    : "mlitm-hongguo:season-episode:" + series.id + ":" + series.season + ":" + episode.number;
+  return {
+    id, link: id + "@" + encodeURIComponent(worker), type: "url", mediaType: "tv",
+    title: "第" + episode.number + "集", seriesName, coverUrl: cover,
+    season: series.season, seasonNumber: series.season,
+    episode: episode.number, episodeNumber: episode.number, duration: episode.duration || undefined
+  };
+}
+
 async function loadDetail(link) {
   const route = hgRoute(link);
-  if (!route || route.episodeId) return null;
+  if (!route || route.episode) return null;
   const worker = hgSavedWorker() || route.worker;
   if (!worker) throw new Error("请填写 Worker 地址并重新打开列表");
-  const data = await hgSeason(worker, route.seriesId);
+  let data;
+  try {
+    data = await hgSeason(worker, route.seriesId, true);
+  } catch (_) {
+    data = await hgSeason(worker, route.seriesId);
+  }
+
   const series = hgSeriesItem(data, worker);
   series.selectedSeasonNumber = data.season;
-  series.episodeItems = data.episodes.map(episode => {
-    const id = "mlitm-hongguo:episode:" + data.id + ":" + episode.number + ":" + episode.id;
-    const link = id + "@" + encodeURIComponent(worker);
-    return {
-      id, link, type: "url", mediaType: "tv", title: "第" + episode.number + "集",
-      seriesName: data.title, coverUrl: series.coverUrl, season: data.season, seasonNumber: data.season,
-      episode: episode.number, episodeNumber: episode.number, duration: episode.duration || undefined
-    };
+  const directory = data.directory || [{ ...data, available: true }];
+  if (!data.directory) series.description = "完整季目录暂时无法加载，请稍后重新打开。\n" + series.description;
+  if (data.directory) {
+    const available = directory.filter(row => row.available);
+    const upcoming = directory.filter(row => !row.available);
+    if (directory.length > 1) {
+      const summary = "共 " + available.length + " 季已上线" +
+        (upcoming.length ? " · " + upcoming.map(row => "第" + row.season + "季").join("、") + "待上线" : "");
+      series.description = summary + "\n" + series.description;
+    }
+  }
+
+  // Rex derives its season picker from episodeItems. The other seasons only
+  // need their official counts here; their video IDs are loaded on demand.
+  series.episodeItems = directory.filter(row => row.available).flatMap(row => {
+    const cover = /^https:\/\//i.test(row.cover || "") ? row.cover : series.coverUrl;
+    const episodes = row.id === data.id ? data.episodes :
+      Array.from({ length: row.episodeCount }, (_, index) => ({ number: index + 1 }));
+    return episodes.map(episode => hgEpisodeItem(row, episode, worker, cover, series.title));
   });
   return series;
 }
@@ -333,15 +393,24 @@ async function loadResource(params = {}) {
   if (!worker) throw new Error("请先在全局参数填写 Worker 地址");
   const requestedEpisode = hgPositive(params.episode ?? params.episodeNumber);
   let episodeId = route.episodeId;
-  if (episodeId && requestedEpisode && requestedEpisode !== route.episode) return [];
+  if (route.episode && requestedEpisode && requestedEpisode !== route.episode) return [];
   if (!episodeId) {
-    const data = await hgSeason(worker, route.seriesId);
     const requestedSeason = hgPositive(params.season ?? params.seasonNumber);
-    if (requestedSeason && requestedSeason !== data.season) return [];
-    const matches = data.episodes.filter(ep => ep.number === (requestedEpisode || 1));
+    if (route.season && requestedSeason && requestedSeason !== route.season) return [];
+    let data = await hgSeason(worker, route.seriesId);
+    if (!route.season && requestedSeason && requestedSeason !== data.season) {
+      data = await hgSeason(worker, route.seriesId, true);
+      if (requestedSeason !== data.season) {
+        const target = data.directory.find(row => row.available && row.season === requestedSeason);
+        if (!target) return [];
+        data = await hgSeason(worker, target.id);
+      }
+    }
+    const matches = data.episodes.filter(ep => ep.number === (route.episode || requestedEpisode || 1));
     if (matches.length !== 1) return [];
     episodeId = matches[0].id;
   }
+
   return [{
     name: "红果", url: worker + "/v1/episodes/" + episodeId + "/stream", playerType: "app"
   }];
