@@ -34,7 +34,7 @@ Rex 模块链接导入使用 `https://raw.githubusercontent.com/zt001110/rex-mod
 
 ## 红果短剧
 
-模块源码在 `modules/hongguo-short-drama.js`。在 Rex 的「设置 → 模块 → 通过链接添加」粘贴 [GitHub Raw 模块链接](https://raw.githubusercontent.com/zt001110/rex-modules/main/encrypted/modules/hongguo-short-drama.js)，再在模块的「全局参数 → Worker 地址」填自己的兼容 Worker 根地址。分享版默认留空，目录、搜索、封面、详情和播放都使用填写的地址。
+模块源码在 `modules/hongguo-short-drama.js`。在 Rex 的「设置 → 模块 → 通过链接添加」粘贴 [GitHub Raw 模块链接](https://raw.githubusercontent.com/zt001110/rex-modules/main/encrypted/modules/hongguo-short-drama.js)，再在模块的「全局参数 → Worker 地址」填 `https://你的Worker/访问密钥`。分享版默认留空，目录、搜索、封面、详情和播放都使用填写的地址。
 
 [自建 Worker 入口与接口要求](deploy/hongguo/README.md)
 

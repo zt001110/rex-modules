@@ -1,12 +1,14 @@
 # 红果短剧自建 Worker
 
-这个 Worker 是 Rex 模块的统一入口。它直接读取红果官网频道、题材、热播榜和封面，并连接你自己的目录接口和播放模型 Worker。Rex 只填统一入口的 HTTPS 根地址。
+这个 Worker 是 Rex 模块的统一入口。它直接读取红果官网频道、题材、热播榜和封面，并连接你自己的目录接口和播放模型 Worker。Rex 填统一入口的 `HTTPS 根地址/访问密钥`。
 
 ## 部署
 
 1. 在 `wrangler.jsonc` 将 `CATALOG_API` 改为自己的红果目录 API 根地址，将 `services[0].service` 改为同一 Cloudflare 账号内的播放模型 Worker 名称。
-2. 在本目录运行 `npx wrangler deploy`。再运行 `npx wrangler secret put RELAY_KEY`，输入播放模型 Worker 的密钥。
-3. 导入 [Rex 模块链接](https://raw.githubusercontent.com/zt001110/rex-modules/main/encrypted/modules/hongguo-short-drama.js)。在模块全局参数填写刚部署的 Worker 根地址，例如 `https://rex-hongguo.example.workers.dev`。密钥只存放在 Cloudflare。
+2. 在本目录运行 `npx wrangler deploy`。再运行 `npx wrangler secret put RELAY_KEY`，输入播放模型 Worker 的密钥。运行 `npx wrangler secret put ACCESS_KEY`，设置 Rex 访问统一入口用的独立密钥。可用 `openssl rand -hex 32` 生成。
+3. 导入 [Rex 模块链接](https://raw.githubusercontent.com/zt001110/rex-modules/main/encrypted/modules/hongguo-short-drama.js)。在模块全局参数填写 `https://你的Worker/访问密钥`，斜杠后填 `ACCESS_KEY`。已有模块刷新后，也需更新原先只填根域名的配置。
+
+`ACCESS_KEY` 保护频道、榜单、搜索、封面、分集和媒体接口。部署后以 `/v1/search` 测试，省略路径密钥或填写错误密钥都会收到 HTTP 401。`RELAY_KEY` 只供 Worker 调用播放模型接口。
 
 ## 上游接口
 

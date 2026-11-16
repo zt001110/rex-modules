@@ -102,13 +102,30 @@ async function catalogResponse(request, env) {
   }
 }
 
+const accessEncoder = new TextEncoder();
+const accessKeyShape = /^[A-Za-z0-9_-]{16,128}$/;
+
+function protectedRequest(request, url, expected) {
+  if (typeof expected !== "string" || !accessKeyShape.test(expected)) return null;
+  const matched = /^\/([A-Za-z0-9_-]{16,128})(\/v1\/.*)$/.exec(url.pathname);
+  if (!matched || matched[1].length !== expected.length ||
+      !crypto.subtle.timingSafeEqual(accessEncoder.encode(matched[1]), accessEncoder.encode(expected))) return null;
+  url.pathname = matched[2];
+  return new Request(url, request);
+}
+
 export default {
   async fetch(request, env, ctx) {
-    const path = new URL(request.url).pathname;
+    const url = new URL(request.url);
     if (request.method !== "GET" && request.method !== "HEAD") {
       return new Response(null, { status: 405, headers: { Allow: "GET, HEAD" } });
     }
-    if (path === "/health") return Response.json({ ok: true, service: "rex-hongguo" });
+    if (url.pathname === "/health") return Response.json({ ok: true, service: "rex-hongguo" });
+    request = protectedRequest(request, url, env.ACCESS_KEY);
+    if (!request) return Response.json({ error: "Valid Worker access key required" }, {
+      status: 401, headers: { "Cache-Control": "no-store" }
+    });
+    const path = url.pathname;
     if (path.startsWith("/v1/cover/")) return officialCover(request, ctx);
     if (path.startsWith("/v1/official/")) return officialBrowse(request, ctx);
     if (CATALOG_ROUTE.test(path)) return catalogResponse(request, env);

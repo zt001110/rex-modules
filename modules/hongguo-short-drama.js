@@ -1,12 +1,12 @@
 WidgetMetadata = {
   id: "personal.mlitm.hongguo-short-drama",
   title: "红果短剧",
-  version: "1.3.1",
+  version: "1.4.0",
   requiredVersion: "0.0.1",
-  description: "红果真人短剧、漫剧和 AI 短剧的官方分类、榜单筛选、搜索和分集。请在全局参数填写自建 Worker 地址。",
+  description: "红果真人短剧、漫剧和 AI 短剧的官方分类、榜单筛选、搜索和分集。请在全局参数填写带访问密钥的自建 Worker 地址。",
   author: "桃子🍑",
   site: "https://github.com/zt001110/rex-modules",
-  globalParams: [{ name: "workerUrl", title: "Worker 地址", type: "input", value: "" }],
+  globalParams: [{ name: "workerUrl", title: "Worker 地址（根地址/访问密钥）", type: "input", value: "" }],
   detailCacheDuration: 180,
   modules: [
     {
@@ -28,7 +28,7 @@ WidgetMetadata = {
   }
 };
 
-const HG_WORKER_KEY = "hongguo-short-drama:worker:v1";
+const HG_WORKER_KEY = "hongguo-short-drama:worker:v2";
 const HG_COMIC_RECOMMENDED = "comic_series_hot_rank";
 const HG_COMIC_POPULAR = "comic_series_hot_play";
 const HG_MENUS = hgOfficialMenus();
@@ -46,16 +46,28 @@ function hgPositive(value) {
   return Number.isSafeInteger(number) && number > 0 ? number : 0;
 }
 
-function hgWorker(value) {
+function hgWorkerOrigin(value) {
   const match = typeof value === "string" &&
     /^https:\/\/([a-z0-9]+(?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9]+(?:[a-z0-9-]*[a-z0-9])?)+)(?::(\d{1,5}))?\/?$/i.exec(value.trim());
   if (!match || (match[2] && (+match[2] < 1 || +match[2] > 65535))) return "";
   return "https://" + match[1].toLowerCase() + (match[2] ? ":" + match[2] : "");
 }
 
+function hgWorker(value) {
+  if (typeof value !== "string") return "";
+  const parts = /^(https:\/\/[^/]+)\/([A-Za-z0-9_-]{16,128})\/?$/i.exec(value.trim());
+  const origin = parts && hgWorkerOrigin(parts[1]);
+  return origin ? origin + "/" + parts[2] : "";
+}
+
+function hgWorkerLink(worker) {
+  // Keep credentials out of Rex identities, watch history and detail links.
+  return encodeURIComponent(worker.slice(0, worker.lastIndexOf("/")));
+}
+
 function hgConfiguredWorker(value) {
   const worker = hgWorker(value);
-  if (!worker) throw new Error("请在红果短剧的全局参数填写 HTTPS Worker 根地址");
+  if (!worker) throw new Error("请在红果短剧的全局参数填写 HTTPS Worker 根地址/访问密钥");
   try { Widget.storage?.set(HG_WORKER_KEY, worker); } catch (_) {}
   return worker;
 }
@@ -70,7 +82,7 @@ function hgRoute(value) {
   if (extra !== undefined) return null;
   let worker = "";
   if (encoded !== undefined) {
-    try { worker = hgWorker(decodeURIComponent(encoded)); } catch (_) { return null; }
+    try { worker = hgWorkerOrigin(decodeURIComponent(encoded)); } catch (_) { return null; }
     if (!worker) return null;
   }
   const season = /^mlitm-hongguo:series:([1-9]\d{0,20})$/.exec(identity);
@@ -165,10 +177,16 @@ function hgBrowseParams() {
 }
 
 async function hgGet(path, base) {
-  const response = await Widget.http.get(base + path, {
-    headers: { Accept: "application/json" }
-  });
+  let response;
+  try {
+    response = await Widget.http.get(base + path, { headers: { Accept: "application/json" } });
+  } catch (error) {
+    const status = error?.response?.status ?? error?.statusCode;
+    if (status === 401 || status === 403) throw new Error("红果 Worker 密钥无效，请检查全局参数");
+    throw new Error("红果 Worker 请求失败，请检查地址和网络");
+  }
   const status = response.status ?? response.statusCode ?? 200;
+  if (status === 401 || status === 403) throw new Error("红果 Worker 密钥无效，请检查全局参数");
   if (status < 200 || status >= 300) throw new Error("红果接口 HTTP " + status);
   const data = typeof response.data === "string" ? JSON.parse(response.data) : response.data;
   if (!data || typeof data !== "object" || Array.isArray(data) || data.error) {
@@ -179,7 +197,7 @@ async function hgGet(path, base) {
 
 function hgSeriesItem(series, worker) {
   const id = "mlitm-hongguo:series:" + series.id;
-  const link = id + "@" + encodeURIComponent(worker);
+  const link = id + "@" + hgWorkerLink(worker);
   const cover = /^https:\/\//i.test(series.cover || "") ? series.cover : undefined;
   const season = hgPositive(series.season) || 1;
   return {
@@ -342,7 +360,7 @@ function hgEpisodeItem(series, episode, worker, cover, seriesName) {
     ? "mlitm-hongguo:episode:" + series.id + ":" + episode.number + ":" + episode.id
     : "mlitm-hongguo:season-episode:" + series.id + ":" + series.season + ":" + episode.number;
   return {
-    id, link: id + "@" + encodeURIComponent(worker), type: "url", mediaType: "tv",
+    id, link: id + "@" + hgWorkerLink(worker), type: "url", mediaType: "tv",
     title: "第" + episode.number + "集", seriesName, coverUrl: cover,
     season: series.season, seasonNumber: series.season,
     episode: episode.number, episodeNumber: episode.number, duration: episode.duration || undefined
@@ -352,7 +370,7 @@ function hgEpisodeItem(series, episode, worker, cover, seriesName) {
 async function loadDetail(link) {
   const route = hgRoute(link);
   if (!route || route.episode) return null;
-  const worker = hgSavedWorker() || route.worker;
+  const worker = hgSavedWorker();
   if (!worker) throw new Error("请填写 Worker 地址并重新打开列表");
   let data;
   try {
@@ -364,9 +382,9 @@ async function loadDetail(link) {
   const series = hgSeriesItem(data, worker);
   series.selectedSeasonNumber = data.season;
   const directory = data.directory || [{ ...data, available: true }];
+  const available = directory.filter(row => row.available);
   if (!data.directory) series.description = "完整季目录暂时无法加载，请稍后重新打开。\n" + series.description;
   if (data.directory) {
-    const available = directory.filter(row => row.available);
     const upcoming = directory.filter(row => !row.available);
     if (directory.length > 1) {
       series.title = series.title.replace(/\s*第[一二三四五六七八九十百零〇两\d]+[季部]\s*$/, "").trim() || series.title;
@@ -378,11 +396,18 @@ async function loadDetail(link) {
 
   // Rex derives its season picker from episodeItems. The other seasons only
   // need their official counts here; their video IDs are loaded on demand.
-  series.episodeItems = directory.filter(row => row.available).flatMap(row => {
+  series.episodeItems = available.flatMap(row => {
     const cover = /^https:\/\//i.test(row.cover || "") ? row.cover : series.coverUrl;
     const episodes = row.id === data.id ? data.episodes :
       Array.from({ length: row.episodeCount }, (_, index) => ({ number: index + 1 }));
-    return episodes.map(episode => hgEpisodeItem(row, episode, worker, cover, series.title));
+    return episodes.map((episode, index) => {
+      const item = hgEpisodeItem(row, episode, worker, cover, series.title);
+      if (data.directory && index === 0) {
+        // Rex filters these cards locally when the viewer switches seasons.
+        item.title = "共" + available.length + "季 · 第" + row.season + "季 · " + episodes.length + "集";
+      }
+      return item;
+    });
   });
   return series;
 }
@@ -390,7 +415,7 @@ async function loadDetail(link) {
 async function loadResource(params = {}) {
   const route = hgRoute(params.link ?? params.id);
   if (!route) return [];
-  const worker = params.workerUrl ? hgConfiguredWorker(params.workerUrl) : hgSavedWorker() || route.worker;
+  const worker = params.workerUrl ? hgConfiguredWorker(params.workerUrl) : hgSavedWorker();
   if (!worker) throw new Error("请先在全局参数填写 Worker 地址");
   const requestedEpisode = hgPositive(params.episode ?? params.episodeNumber);
   let episodeId = route.episodeId;
