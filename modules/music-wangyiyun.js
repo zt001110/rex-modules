@@ -2,7 +2,7 @@ WidgetMetadata = {
   id: "mlitm.netease.account",
   title: "网易云音乐 · 我的音乐",
   iconurl: "https://raw.githubusercontent.com/zt001110/rex-icons/main/logos/official-ios/%E7%BD%91%E6%98%93%E4%BA%91%E9%9F%B3%E4%B9%90.png",
-  version: "1.2.5",
+  version: "1.2.6",
   requiredVersion: "0.0.1",
   description: "账号歌单、收藏专辑、每日推荐、推荐歌单、心动模式与热歌榜，按账号权限在线播放，支持同步歌词。",
   author: "mlitm",
@@ -601,7 +601,7 @@ async function loadDetail(link) {
 }
 
 function ncmAttachPlayback(item, resource) {
-  item.videoUrl = resource.url;
+  if (!resource.subtitles) item.videoUrl = resource.url;
   item.customHeaders = resource.customHeaders;
   item.playerType = resource.playerType;
   if (resource.subtitles) item.subtitles = resource.subtitles;
@@ -627,7 +627,7 @@ function ncmTrackResource(track, quality) {
   if (!track || !track.url) ncmFail("此账号暂时无法播放这首歌，请检查会员、购买权限或地区版权");
   if (track.freeTrialInfo || track.freeTimeTrialInfo) ncmFail("网易云只返回了试听片段，当前账号没有完整播放权限");
   if (!/^https?:\/\//i.test(track.url)) ncmFail("网易云返回了无效播放地址");
-  return { name: "网易云 · " + (track.level || quality), description: track.br ? Math.round(track.br / 1000) + " kbps" : "",
+  return { name: "网易云歌词测试 · " + (track.level || quality), description: track.br ? Math.round(track.br / 1000) + " kbps" : "",
     url: track.url.replace(/^http:/i, "https:"),
     customHeaders: {
       "User-Agent": "Mozilla/5.0",
@@ -635,7 +635,7 @@ function ncmTrackResource(track, quality) {
     },
     playerType: "app",
     subtitles: [{ url: NCM_LYRICS + String(track.id) + ".srt",
-      name: "歌词", language: "und", headers: {}, isDefault: true }] };
+      name: "歌词", language: "zh", headers: {}, isDefault: true }] };
 }
 
 async function ncmPlayback(id, config) {
