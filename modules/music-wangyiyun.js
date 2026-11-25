@@ -2,7 +2,7 @@ var WidgetMetadata = {
   id: "mlitm.netease.account",
   title: "网易云音乐 · 我的音乐",
   iconurl: "https://raw.githubusercontent.com/zt001110/rex-icons/main/logos/official-ios/%E7%BD%91%E6%98%93%E4%BA%91%E9%9F%B3%E4%B9%90.png",
-  version: "1.2.21",
+  version: "1.2.22",
   requiredVersion: "0.0.7",
   contentType: "music",
   description: "账号歌单、收藏专辑、每日推荐、推荐歌单、心动模式与热歌榜，按账号权限在线播放，支持同步歌词。",
@@ -25,7 +25,11 @@ var WidgetMetadata = {
       { name: "page", title: "页码", type: "page" }
     ] },
     { id: "recommended", title: "推荐歌单", functionName: "loadRecommendedPlaylists", cacheDuration: 0, params: [] },
-    { id: "daily", title: "每日推荐", functionName: "loadDaily", cacheDuration: 0, params: [] },
+    { id: "daily", title: "每日推荐", functionName: "loadDaily", cacheDuration: 0, params: [
+      { name: "dailyMode", title: "播放方式", type: "enumeration", value: "song", enumOptions: [
+        { title: "原生歌曲", value: "song" }, { title: "从所选歌曲连播", value: "playlist" }
+      ] }
+    ] },
     { id: "hot", title: "热歌榜", functionName: "loadHot", cacheDuration: 300, params: [] },
     { id: "mvTop", title: "MV榜单", functionName: "loadMvTop", cacheDuration: 300, params: [
       { name: "page", title: "页码", type: "page" }
@@ -322,6 +326,9 @@ async function loadDaily(params) {
       return true;
     });
     if (!songs.length) ncmFail("每日推荐暂未返回歌曲，请稍后刷新");
+    if ((params || {}).dailyMode !== "playlist") {
+      return ncmNativeTracks(songs.map(ncmSong), config, true);
+    }
     var queue = ncmMakeQueue("每日推荐", songs, profile);
     ncmStoreQueue(queue);
     return songs.map(function (song, index) {

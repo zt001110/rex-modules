@@ -190,7 +190,13 @@ async function main() {
   assert.equal(sent.options.headers.Cookie, cookie + '; os=pc');
   assert.equal(JSON.parse(storage.get('ncm.account.v1')).cookie, cookie + '; os=android');
   assert.equal((await context.loadRecommendedPlaylists({}))[0].link, 'ncm:playlist:42');
-  const dailySongs = await context.loadDaily({});
+  const nativeDaily = await context.loadDaily({});
+  assert.deepEqual(Array.from(nativeDaily, s => [s.id, s.link, s.mediaType]),
+    ['10', '20', '30'].map(id => ['ncm:song:' + id, 'ncm:song:' + id, 'song']));
+  assert.match(nativeDaily[1].videoUrl, /audio-20\.mp3/);
+  assert.match(nativeDaily[1].externalSubtitles[0].url, /\/20\.lrc$/);
+  assert.equal(storage.has('ncm.queues.v1'), false);
+  const dailySongs = await context.loadDaily({ dailyMode: 'playlist' });
   assert.deepEqual(Array.from(dailySongs, s => s.title), ['Song 10', 'Song 20', 'Song 30']);
   assert.equal(dailySongs[1].link, dailySongs[0].link + ':1');
   assert.equal(dailySongs[2].link, dailySongs[0].link + ':2');
