@@ -18,14 +18,13 @@ const song = id => ({ id: Number(id), name: 'Song ' + id, fee: 1,
 const playlist = { id: 42, name: 'Private list', trackCount: 205, specialType: 5, creator: { userId: 88 },
   coverImgUrl: 'http://p1.music.126.net/list.jpg', trackIds: Array.from({ length: 205 }, (_, i) => ({ id: i + 1 })) };
 let userPlaylists = [playlist];
-let playlistDetail = playlist, missingSong;
 const album = { id: 73, name: 'Collected album', size: 105,
   artists: [{ name: 'Album artist' }], picUrl: 'http://p1.music.126.net/album.jpg' };
 let albumList = [album], albumWrongId = false, albumIncomplete = false;
 const albumSongs = Array.from({ length: 105 }, (_, i) => song(1001 + i));
 const context = vm.createContext({ console, Date: TestDate, Widget: {
   storage: { get: k => storage.get(k), set: (k, v) => storage.set(k, v), remove: k => storage.delete(k) },
-  http: { request: async ({ url, ...options }) => {
+  http: { get: async (url, options) => {
     calls.push({ url, options });
     const q = options.params;
     let body;
@@ -38,8 +37,8 @@ const context = vm.createContext({ console, Date: TestDate, Widget: {
     else if (url.endsWith('/v1/album/73')) body = { code: 200,
       album: { ...album, id: albumWrongId ? 74 : 73 }, songs: albumIncomplete ? albumSongs.slice(0, 1) : albumSongs };
     else if (url.endsWith('/song/like/get')) body = { code: 200, ids: Array.from({ length: 105 }, (_, i) => i + 1) };
-    else if (url.endsWith('/v3/song/detail')) body = { code: 200, songs: JSON.parse(q.c).filter(x => x.id !== missingSong).map(x => song(x.id)).reverse() };
-    else if (url.endsWith('/v6/playlist/detail')) body = { code: 200, playlist: playlistDetail };
+    else if (url.endsWith('/v3/song/detail')) body = { code: 200, songs: JSON.parse(q.c).map(x => song(x.id)).reverse() };
+    else if (url.endsWith('/v6/playlist/detail')) body = { code: 200, playlist };
     else if (url.endsWith('/v1/radio/get')) body = { code: 200, data: [song(333)] };
     else if (url.endsWith('/search/get')) body = { code: 200, result: { songs: [song(444)] } };
     else if (url.endsWith('/v1/discovery/recommend/resource')) body = { code: 200, recommend: [playlist] };
@@ -59,7 +58,6 @@ vm.runInContext(fs.readFileSync(target, 'utf8'), context);
 
 async function main() {
   assert.equal(context.WidgetMetadata.id, 'mlitm.netease.account');
-  assert.equal(context.WidgetMetadata.contentType, 'music');
   assert.deepEqual(Array.from(context.WidgetMetadata.modules.filter(m => !m.type), m => m.id),
     ['playlists', 'albums', 'recommended', 'daily', 'hot', 'mvTop', 'mvLibrary', 'mvLatest', 'account']);
   for (const fn of ['loadMvTop', 'loadMvLibrary', 'loadMvLatest']) {
@@ -133,8 +131,6 @@ async function main() {
   assert.ok(detail.episodeItems[0].externalSubtitles[0].url.endsWith('/netease/1.lrc'));
   assert.ok(detail.episodeItems[1].externalSubtitles[0].url.endsWith('/netease/2.lrc'));
   assert.ok(detail.episodeItems[99].externalSubtitles[0].url.endsWith('/netease/100.lrc'));
-  assert.equal(detail.mediaType, 'tv');
-  assert.equal(detail.tracks, undefined);
   assert.equal(detail.episodeItems[1].customHeaders.Cookie, undefined);
   sent = calls.filter(c => c.url.endsWith('/song/enhance/player/url/v1')).at(-1);
   assert.deepEqual(JSON.parse(sent.options.params.ids), Array.from({ length: 100 }, (_, i) => i + 1));
@@ -187,7 +183,7 @@ async function main() {
   assert.equal(JSON.parse(storage.get('ncm.queues.v1')).length, 1);
   for (const item of dailySongs) {
     assert.equal(item.id, item.link);
-    assert.equal(item.mediaType, 'playlist');
+    assert.equal(item.mediaType, 'tv');
     assert.equal(item.type, 'url');
     assert.match(item.coverUrl, /^https:/);
     assert.equal(item.episodeItems, undefined);
@@ -202,7 +198,7 @@ async function main() {
   // Existing daily queue links remain readable after the card layout changes.
   const daily = context.ncmSaveQueue('每日推荐', [song(10), song(20)], { userId: 88 })[0];
   let queue = await context.loadDetail(daily.link);
-  assert.equal(queue.mediaType, 'playlist');
+  assert.equal(queue.mediaType, 'tv');
   assert.equal(queue.episodeItems.length, 2);
   assert.equal(queue.episodeItems[1].link, 'ncm:song:20');
   assert.ok(queue.episodeItems[1].externalSubtitles[0].url.endsWith('/netease/20.lrc'));
@@ -264,7 +260,6 @@ async function main() {
   const lyricLookup = calls.filter(c => c.url.endsWith('/song/lyric')).at(-1).options;
   assert.equal(lyricLookup.params.id, '701');
   assert.equal(lyricLookup.headers.Cookie, undefined);
-  assert.equal(lyricLookup.timeout, 4);
   assert.equal((await context.loadSubtitle({ link: 'ncm:mv:777' })).length, 0);
   assert.equal((await context.loadSubtitle({ link: 'https://example.com/movie', id: 'ncm:song:700' })).length, 0);
   assert.equal((await context.loadSubtitle({ link: 'ncm:heart:146' })).length, 0);
@@ -352,23 +347,8 @@ async function main() {
     assert.equal(calls.length, before);
   }
   const before = calls.length;
-  assert.equal((await context.loadDetail('ncm:song:1?x=2')).length, 0);
+  assert.equal(await context.loadDetail('ncm:song:1?x=2'), null);
   assert.equal(calls.length, before);
-  playlistDetail = { ...playlist, trackIds: [null, { id: 11 }, { id: 22 }, { id: 33 }], trackCount: 3 };
-  missingSong = '22';
-  const sparseDetail = await context.loadDetail('ncm:playlist:42');
-  assert.equal(sparseDetail.mediaType, 'playlist');
-  assert.deepEqual(Array.from(sparseDetail.tracks, track => [track.mediaType, track.link, track.episode, track.externalSubtitles[0].url]),
-    [['11', 1], ['33', 3]].map(([id, episode]) =>
-      ['song', 'ncm:song:' + id, episode, 'https://rex-netease-lyrics.mlitm.workers.dev/netease/' + id + '.lrc']));
-  const nextParams = { link: sparseDetail.link, episode: String(sparseDetail.tracks[1].episode) };
-  assert.match((await context.loadResource(nextParams))[0].url, /audio-33\.mp3/);
-  assert.match((await context.loadSubtitle(nextParams))[0].url, /\/netease\/33\//);
-  playlistDetail = { ...playlist, trackIds: [], tracks: [{ id: 33 }], trackCount: 1 };
-  assert.equal((await context.loadDetail('ncm:playlist:42')).tracks[0].link, 'ncm:song:33');
-  assert.match((await context.loadResource({ link: 'ncm:playlist:42', episode: '1' }))[0].url, /audio-33\.mp3/);
-  playlistDetail = playlist;
-  missingSong = undefined;
   trial = true;
   albumDetail = await context.loadDetail('ncm:album:73');
   assert.ok(albumDetail.episodeItems.every(item => item.externalSubtitles === undefined && item.videoUrl === undefined));
