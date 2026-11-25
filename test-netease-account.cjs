@@ -53,7 +53,7 @@ async function request({ url, ...options }) {
     return { statusCode: 200, data: JSON.stringify(body) };
 }
 const context = vm.createContext({ console, Date: TestDate, Widget: {
-  storage: { get: k => storage.get(k), set: (k, v) => storage.set(k, v), remove: k => storage.delete(k) },
+  storage: { get: k => storage.get(k), set: (k, v) => storage.set(k, v), remove: k => storage.delete(k), keys: () => [...storage.keys()] },
   http: { request, get: (url, options) => request({ url, ...options }) }
 } });
 vm.runInContext(fs.readFileSync(target, 'utf8'), context);
@@ -126,7 +126,14 @@ async function main() {
   assert.equal(sent.options.params.offset, 30);
   assert.equal(sent.options.headers.Cookie, cookie);
   assert.equal(sent.options.params.csrf_token, 'fixture-csrf');
+  const beforePlaylistDetail = calls.length;
   let detail = await context.loadDetail(lists[0].link);
+  const warmedLyrics = calls.slice(beforePlaylistDetail).filter(c => c.url.endsWith('/song/lyric'));
+  assert.deepEqual(warmedLyrics.map(c => c.options.params.id), ['1', '2']);
+  assert.ok(warmedLyrics.every(c => c.options.timeout === 1 && c.options.headers.Cookie === undefined));
+  const beforeNextSubtitle = calls.length;
+  assert.match((await context.loadSubtitle({ link: 'ncm:song:2' }))[0].content, /^\[00:01\.00\]/);
+  assert.equal(calls.length, beforeNextSubtitle);
   assert.equal(detail.id, lists[0].id);
   assert.equal(detail.episodeItems.length, 100);
   assert.equal(detail.episodeItems[0].link, 'ncm:song:1');
@@ -264,10 +271,12 @@ async function main() {
   assert.equal(nextLyric.format, 'lrc');
   assert.match(nextLyric.content, /^\[00:01\.00\]/);
   assert.equal(nextLyric.data, nextLyric.content);
-  const lyricLookup = calls.filter(c => c.url.endsWith('/song/lyric')).at(-1).options;
-  assert.equal(lyricLookup.params.id, '701');
+  const lyricLookup = calls.find(c => c.url.endsWith('/song/lyric') && c.options.params.id === '701').options;
   assert.equal(lyricLookup.headers.Cookie, undefined);
-  assert.equal(lyricLookup.timeout, 4);
+  assert.equal(lyricLookup.timeout, 1);
+  await context.loadSubtitle({ link: 'ncm:song:98765' });
+  assert.equal(calls.at(-1).options.params.id, '98765');
+  assert.equal(calls.at(-1).options.timeout, 4);
   assert.equal((await context.loadSubtitle({ link: 'ncm:mv:777' })).length, 0);
   assert.equal((await context.loadSubtitle({ link: 'https://example.com/movie', id: 'ncm:song:700' })).length, 0);
   assert.equal((await context.loadSubtitle({ link: 'ncm:heart:146' })).length, 0);

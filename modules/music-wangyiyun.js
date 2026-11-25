@@ -2,7 +2,7 @@ var WidgetMetadata = {
   id: "mlitm.netease.account",
   title: "网易云音乐 · 我的音乐",
   iconurl: "https://raw.githubusercontent.com/zt001110/rex-icons/main/logos/official-ios/%E7%BD%91%E6%98%93%E4%BA%91%E9%9F%B3%E4%B9%90.png",
-  version: "1.2.20",
+  version: "1.2.21",
   requiredVersion: "0.0.7",
   contentType: "music",
   description: "账号歌单、收藏专辑、每日推荐、推荐歌单、心动模式与热歌榜，按账号权限在线播放，支持同步歌词。",
@@ -61,6 +61,7 @@ var WidgetMetadata = {
 
 var NCM_SITE = "https://music.163.com";
 var NCM_LYRICS = "https://rex-netease-lyrics.mlitm.workers.dev/netease/";
+var NCM_LYRIC_CACHE = "ncm.lyrics.v1.";
 var NCM_STORAGE = "ncm.account.v1";
 var NCM_QUEUES = "ncm.queues.v1";
 var NCM_HEART_CACHE = "ncm.heart.daily.v1";
@@ -198,6 +199,8 @@ async function loadAccount(params) {
       Widget.storage.remove(NCM_HEART_CACHE);
       Widget.storage.remove(NCM_HEART_CURRENT);
       Widget.storage.remove(NCM_HEART_ALIASES);
+      Widget.storage.keys().filter(function (key) { return key.indexOf(NCM_LYRIC_CACHE) === 0; })
+        .forEach(function (key) { Widget.storage.remove(key); });
       return [{ id: "ncm:status", type: "url", title: "本模块登录缓存已清除", description: "请同时清空模块全局参数中的 Cookie。" }];
     }
     var profile = await ncmProfile(ncmConfig(params));
@@ -291,7 +294,7 @@ async function ncmAlbumDetail(route, config) {
     entry.episode = route.offset + i + 1;
     return entry;
   });
-  item.tracks = await ncmNativeTracks(item.episodeItems, config);
+  item.tracks = await ncmNativeTracks(item.episodeItems, config, true);
   item.relatedItems = [];
   ncmPageNeighbors(item, songs.length, route.offset, function (offset) { return ncmAlbum(data.album, offset); });
   return item;
@@ -433,7 +436,7 @@ async function ncmHeartDetail(config, profile) {
   // A single heart identity includes every song, so page changes do not create extra history cards.
   for (var offset = 0; offset < queue.ids.length; offset += NCM_PAGE) {
     var songs = await ncmSongs(queue.ids.slice(offset, offset + NCM_PAGE), config);
-    item.tracks = item.tracks.concat(await ncmNativeTracks(songs, config));
+    item.tracks = item.tracks.concat(await ncmNativeTracks(songs, config, offset === 0));
     songs.forEach(function (song) { ncmHeartEpisode(song, queue.ids.indexOf(ncmLink(song.link).id) + 1); });
     item.episodeItems = item.episodeItems.concat(songs);
   }
@@ -504,7 +507,7 @@ async function ncmPlaylistDetail(route, config) {
   item.tracks = [];
   for (var offset = route.offset; offset < ids.length; offset += NCM_PAGE) {
     var songs = await ncmNumberedSongs(ids, offset, config);
-    var tracks = await ncmNativeTracks(songs, config);
+    var tracks = await ncmNativeTracks(songs, config, offset === route.offset);
     if (offset === route.offset) item.episodeItems = songs;
     item.tracks = item.tracks.concat(tracks);
   }
@@ -543,10 +546,15 @@ async function ncmNumberedSongs(ids, offset, config) {
   return songs;
 }
 
-async function ncmNativeTracks(items, config) {
-  var byId = await ncmPlaybackTracks(items.map(function (song) {
+async function ncmNativeTracks(items, config, warmLyrics) {
+  var ids = items.map(function (song) {
     return ncmLink(song.link).id;
-  }), config);
+  });
+  // Run the two opening lyric requests alongside the audio lookup.
+  var firstIds = warmLyrics ? ids.slice(0, 2) : [];
+  var requests = [ncmPlaybackTracks(ids, config)];
+  firstIds.forEach(function (id) { requests.push(ncmLyricText(id, 1)); });
+  var byId = (await Promise.all(requests))[0];
   return items.map(function (song) {
     var track = byId[ncmLink(song.link).id];
     if (!track || !/^https?:\/\//i.test(track.url) || track.freeTrialInfo || track.freeTimeTrialInfo) {
@@ -589,7 +597,7 @@ async function ncmQueueDetail(route, config, profile) {
   if (!queue) ncmFail("推荐队列已过期，请返回模块重新获取");
   var item = ncmQueueItem(queue, route.offset);
   item.episodeItems = await ncmNumberedSongs(queue.ids, route.offset, config);
-  item.tracks = await ncmNativeTracks(item.episodeItems, config);
+  item.tracks = await ncmNativeTracks(item.episodeItems, config, true);
   item.relatedItems = [];
   ncmPageNeighbors(item, queue.ids.length, route.offset, function (offset) { return ncmQueueItem(queue, offset); });
   return item;
@@ -757,8 +765,8 @@ async function loadResource(params) {
     if (route.kind === "mv") return [await ncmMvPlayback(route.id, config)];
     var profile = await ncmProfile(config);
     var songId = await ncmResolveSongId(route, config, profile);
-    var resource = await ncmPlayback(songId, config);
-    var tracks = [await ncmResolvedLyricTrack(songId)];
+    var results = await Promise.all([ncmPlayback(songId, config), ncmResolvedLyricTrack(songId)]);
+    var resource = results[0], tracks = [results[1]];
     resource.subtitles = resource.externalSubtitles = resource.subtitleTracks = tracks;
     return [resource];
   });
@@ -791,17 +799,32 @@ async function ncmResolvedLyricTrack(songId) {
   track.default = true;
   track.selected = true;
 
-  // Use the same source as the Worker for inline lyrics. Keep its direct link as a fallback.
-  try {
-    var data = await ncmApi("/song/lyric", { id: songId, lv: 1 }, {}, 4);
-    var text = data.lrc && data.lrc.lyric;
-    if (typeof text === "string" && /^\[\d{1,4}:[0-5]?\d(?:[.:]\d{1,3})?\]/m.test(text)) {
-      track.data = text;
-      track.content = text;
-    }
-  } catch (_) {}
+  var text = await ncmLyricText(songId, 4);
+  if (text) {
+    track.data = text;
+    track.content = text;
+  }
   track.languageIdentifier = track.language;
   return track;
+}
+
+async function ncmLyricText(songId, timeout) {
+  songId = String(songId);
+  // Fixed slots bound storage. A collision only causes a miss for the older song.
+  var key = NCM_LYRIC_CACHE + Number(songId.slice(-6)) % 128;
+  var cached = ncmStoredObject(key);
+  if (cached.id === songId && cached.expires > Date.now()) return cached.text;
+  try {
+    var data = await ncmApi("/song/lyric", { id: songId, lv: 1 }, {}, timeout);
+    var text = data.lrc && data.lrc.lyric;
+    if (typeof text === "string" && /^\[\d{1,4}:[0-5]?\d(?:[.:]\d{1,3})?\]/m.test(text)) {
+      if (text.length <= 20000) {
+        Widget.storage.set(key, JSON.stringify({ id: songId, text: text, expires: Date.now() + 3600000 }));
+      }
+      return text;
+    }
+  } catch (_) {}
+  return "";
 }
 
 function ncmMv(mv) {
