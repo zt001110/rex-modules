@@ -2,7 +2,7 @@ var WidgetMetadata = {
   id: "mlitm.netease.account",
   title: "网易云音乐 · 我的音乐",
   iconurl: "https://raw.githubusercontent.com/zt001110/rex-icons/main/logos/official-ios/%E7%BD%91%E6%98%93%E4%BA%91%E9%9F%B3%E4%B9%90.png",
-  version: "1.2.32",
+  version: "1.2.33",
   requiredVersion: "0.0.7",
   contentType: "music",
   description: "账号歌单、收藏专辑、每日推荐、推荐歌单、心动模式与热歌榜，按账号权限在线播放，支持同步歌词。",
@@ -323,7 +323,7 @@ async function loadMyAlbums(params) {
     var data = await ncmApi("/album/sublist", { limit: 30, offset: offset, total: true }, config);
     if (!Array.isArray(data.data)) ncmFail("网易云未返回收藏专辑列表，请检查登录状态");
     return data.data.filter(function (album) { return album && ncmId(album.id); }).map(function (album) {
-      return ncmBrowseCard(ncmAlbum(album));
+      return ncmAlbum(album);
     });
   });
 }

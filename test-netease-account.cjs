@@ -94,7 +94,7 @@ async function main() {
   assert.match(account[0].title, /Test/);
   const albums = await context.loadMyAlbums({ page: 2 });
   assert.equal(albums[0].link, 'ncm:album:73');
-  assert.equal(albums[0].mediaType, 'genre');
+  assert.equal(albums[0].mediaType, 'album');
   assert.equal(albums[0].title, 'Collected album');
   assert.match(albums[0].description, /Album artist.*105/);
   assert.equal(albums[0].coverUrl, 'https://p1.music.126.net/album.jpg');
