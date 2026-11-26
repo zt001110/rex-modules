@@ -181,7 +181,12 @@ async function main() {
   assert.deepEqual(Array.from(browseSongs, song => song.link),
     Array.from({ length: 20 }, (_, i) => 'ncm:song:' + (21 + i)));
   assert.equal(browseSongs[0].subtitle, 'Artist');
+  assert.equal(browseSongs[0].videoUrl, undefined);
   assert.match(browseSongs[0].externalSubtitles[0].url, /\/21\.lrc$/);
+  const [nextBrowseResource] = await context.loadResource({ link: browseSongs[1].link });
+  assert.match(nextBrowseResource.url, /audio-22\.mp3/);
+  assert.match(nextBrowseResource.subtitles[0].url, /\/22\/\d+\.lrc$/);
+  assert.match(nextBrowseResource.subtitles[0].content, /^\[00:01\.00\]/);
   assert.equal((await context.loadMusicGenres({ ...browse, section: 'songs', offset: 205 })).length, 0);
   assert.deepEqual(Array.from(await context.loadMusicGenres({ ...browse, section: 'albums' }), item => item.link), ['ncm:album:73']);
   assert.equal((await context.loadMusicGenres({ ...browse, section: 'albums', page: 2 })).length, 0);

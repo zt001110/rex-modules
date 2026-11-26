@@ -2,7 +2,7 @@ var WidgetMetadata = {
   id: "mlitm.netease.account",
   title: "网易云音乐 · 我的音乐",
   iconurl: "https://raw.githubusercontent.com/zt001110/rex-icons/main/logos/official-ios/%E7%BD%91%E6%98%93%E4%BA%91%E9%9F%B3%E4%B9%90.png",
-  version: "1.2.26",
+  version: "1.2.27",
   requiredVersion: "0.0.7",
   contentType: "music",
   description: "账号歌单、收藏专辑、每日推荐、推荐歌单、心动模式与热歌榜，按账号权限在线播放，支持同步歌词。",
@@ -577,7 +577,11 @@ async function loadMusicGenres(params) {
     }
     if (params.section === "songs") {
       var songs = await ncmSongs(ids.slice(offset, offset + NCM_BROWSE_PAGE), config);
-      return ncmNativeTracks(songs, config, offset === 0);
+      // A direct videoUrl skips loadResource when Rex advances the music queue.
+      return songs.map(function (song) {
+        song.externalSubtitles = [ncmLyricTrack(ncmLink(song.link).id)];
+        return song;
+      });
     }
     var credits = await ncmBrowseCredits(ids, params.section, offset, config);
     if (params.section === "albums") return credits.map(function (album) { return ncmAlbum(album); });
