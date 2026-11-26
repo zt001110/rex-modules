@@ -47,7 +47,9 @@ async function request({ url, ...options }) {
     else if (url.endsWith('/v1/discovery/recommend/resource')) body = { code: 200, recommend: [playlist] };
     else if (url.endsWith('/v3/discovery/recommend/songs')) body = { code: 200, data: { dailySongs: [song(10), song(20), song(30), song(10)] } };
     else if (url.endsWith('/playmode/intelligence/list')) body = { code: 200, data: emptyHeart ? [] : Array.from({ length: 145 }, (_, i) => ({ songInfo: song(heartBase + i) })) };
-    else if (url.endsWith('/song/lyric')) body = { code: 200, lrc: { lyric: '[00:01.00]first line\n[00:04.50]second line' } };
+    else if (url.endsWith('/song/lyric')) body = { code: 200, lrc: {
+      lyric: q.id === '98764' ? '' : '[00:01.00]first line\n[00:04.50]second line'
+    } };
     else if (url.endsWith('/toplist')) body = { code: 200, list: [{ ...playlist, name: '云音乐热歌榜' }, { ...playlist, name: '飙升榜' }] };
     else if (url.endsWith('/song/enhance/player/url/v1')) body = { code: 200, data: JSON.parse(q.ids).map(id => ({
       id: wrongId ? 999 : id, url: denied ? null : 'http://m7.music.126.net/audio-' + id + '.mp3?signature=fixture',
@@ -187,6 +189,18 @@ async function main() {
   assert.match(nextBrowseResource.url, /audio-22\.mp3/);
   assert.match(nextBrowseResource.subtitles[0].url, /\/22\/\d+\.lrc$/);
   assert.match(nextBrowseResource.subtitles[0].content, /^\[00:01\.00\]/);
+  for (const params of [
+    { link: browseSongs[0].link, id: browseSongs[1].id },
+    { link: likedDirectory.link, episode: browseSongs[1].link },
+    { link: likedDirectory.link, episode: { link: browseSongs[1].link } }
+  ]) {
+    const [switched] = await context.loadResource({ ...params, episodeName: 'Song 22' });
+    assert.match(switched.url, /audio-22\.mp3/);
+    assert.equal(switched.externalSubtitles[0].title, 'Song 22 · LRC 歌词');
+    assert.match(switched.externalSubtitles[0].url, /\/22\/\d+\.lrc$/);
+  }
+  assert.equal((await context.loadResource({ link: 'ncm:song:98764' }))[0].externalSubtitles.length, 0);
+  assert.equal((await context.loadSubtitle({ link: 'ncm:song:98764' })).length, 0);
   assert.equal((await context.loadMusicGenres({ ...browse, section: 'songs', offset: 205 })).length, 0);
   assert.deepEqual(Array.from(await context.loadMusicGenres({ ...browse, section: 'albums' }), item => item.link), ['ncm:album:73']);
   assert.equal((await context.loadMusicGenres({ ...browse, section: 'albums', page: 2 })).length, 0);

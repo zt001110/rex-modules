@@ -2,7 +2,7 @@ var WidgetMetadata = {
   id: "mlitm.netease.account",
   title: "网易云音乐 · 我的音乐",
   iconurl: "https://raw.githubusercontent.com/zt001110/rex-icons/main/logos/official-ios/%E7%BD%91%E6%98%93%E4%BA%91%E9%9F%B3%E4%B9%90.png",
-  version: "1.2.29",
+  version: "1.2.30",
   requiredVersion: "0.0.7",
   contentType: "music",
   description: "账号歌单、收藏专辑、每日推荐、推荐歌单、心动模式与热歌榜，按账号权限在线播放，支持同步歌词。",
@@ -579,7 +579,7 @@ async function loadMusicGenres(params) {
       var songs = await ncmSongs(ids.slice(offset, offset + NCM_BROWSE_PAGE), config);
       // A direct videoUrl skips loadResource when Rex advances the music queue.
       return songs.map(function (song) {
-        song.externalSubtitles = [ncmLyricTrack(ncmLink(song.link).id)];
+        song.externalSubtitles = [ncmLyricTrack(ncmLink(song.link).id, song.title)];
         return song;
       });
     }
@@ -711,7 +711,7 @@ async function ncmNativeTracks(items, config, warmLyrics) {
     if (!track || !/^https?:\/\//i.test(track.url) || track.freeTrialInfo || track.freeTimeTrialInfo) {
       return Object.assign({}, song);
     }
-    var resource = ncmTrackResource(track, config.quality || "standard");
+    var resource = ncmTrackResource(track, config.quality || "standard", song.title);
     ncmAttachPlayback(song, resource);
     var lyric = resource.subtitles[0];
     // Native queue items carry the audio and its own documented external subtitle.
@@ -791,7 +791,7 @@ async function loadDetail(link) {
       if (!id) ncmFail("当前心动列表没有这一集，请返回心动模式重新选择");
       var songs = await ncmSongs([id], config);
       if (!songs.length) ncmFail("网易云未返回这首歌曲的信息");
-      ncmAttachPlayback(songs[0], await ncmPlayback(id, config));
+      ncmAttachPlayback(songs[0], await ncmPlayback(id, config, songs[0].title));
       return ncmHeartEpisode(songs[0], route.episode);
     }
     if (route.kind === "album") return ncmAlbumDetail(route, config);
@@ -799,7 +799,7 @@ async function loadDetail(link) {
     if (route.kind === "queue") return ncmQueueDetail(route, config, profile);
     var items = await ncmSongs([route.id], config);
     if (!items.length) ncmFail("网易云未返回这首歌曲的信息");
-    ncmAttachPlayback(items[0], await ncmPlayback(route.id, config));
+    ncmAttachPlayback(items[0], await ncmPlayback(route.id, config, items[0].title));
     return items[0];
   });
 }
@@ -828,7 +828,7 @@ async function ncmPlaybackTracks(ids, config) {
   return tracks;
 }
 
-function ncmTrackResource(track, quality) {
+function ncmTrackResource(track, quality, title) {
   if (!track || !track.url) ncmFail("此账号暂时无法播放这首歌，请检查会员、购买权限或地区版权");
   if (track.freeTrialInfo || track.freeTimeTrialInfo) ncmFail("网易云只返回了试听片段，当前账号没有完整播放权限");
   if (!/^https?:\/\//i.test(track.url)) ncmFail("网易云返回了无效播放地址");
@@ -839,35 +839,44 @@ function ncmTrackResource(track, quality) {
       Referer: NCM_SITE + "/"
     },
     playerType: "app",
-    subtitles: [ncmLyricTrack(String(track.id))] };
+    subtitles: [ncmLyricTrack(String(track.id), title)] };
 }
 
-async function ncmPlayback(id, config) {
+async function ncmPlayback(id, config, title) {
   var tracks = await ncmPlaybackTracks([id], config);
-  return ncmTrackResource(tracks[id], config.quality || "standard");
+  return ncmTrackResource(tracks[id], config.quality || "standard", title);
 }
 
-function ncmLyricTrack(id) {
+function ncmLyricTrack(id, title) {
+  var label = (title || "网易云 " + id) + " · LRC 歌词";
   return {
     id: "ncm:lyrics:" + id,
     url: NCM_LYRICS + id + ".lrc",
-    name: "歌词", title: "歌词",
+    name: label, title: label,
     lang: "zh-Hans", language: "zh-Hans",
     format: "lrc", type: "lrc",
     fileName: "netease-" + id + ".lrc",
-    headers: {}, isDefault: true
+    customHeaders: {}, headers: {}, isDefault: true
   };
 }
 
 function ncmPlaybackRoute(params) {
   var p = params || {}, route = ncmLink(p.link != null ? p.link : p.id);
   if (!route) return null;
+  var episodeParam = p.episode;
+  if (episodeParam && typeof episodeParam === "object") {
+    episodeParam = episodeParam.link || episodeParam.id || episodeParam.episode;
+  }
+  var current = ncmLink(episodeParam);
+  if (route.kind !== "mv" && current && current.kind === "song") return current;
+  var item = ncmLink(p.id);
+  if (route.kind === "song" && item && item.kind === "song") return item;
   if (route.kind === "song" || route.kind === "mv") return route;
   // Rex can retain the original link while advancing the episode in the player.
   var episode = route.episode || (route.offset || 0) + 1;
-  if (p.episode != null && p.episode !== "") {
-    if (!/^[1-9]\d*$/.test(String(p.episode))) return null;
-    episode = Number(p.episode);
+  if (episodeParam != null && episodeParam !== "") {
+    if (!/^[1-9]\d*$/.test(String(episodeParam))) return null;
+    episode = Number(episodeParam);
   }
   if (!Number.isSafeInteger(episode) || episode < 1 ||
       (p.season != null && String(p.season) !== "1")) return null;
@@ -916,8 +925,9 @@ async function loadResource(params) {
     if (route.kind === "mv") return [await ncmMvPlayback(route.id, config)];
     var profile = await ncmProfile(config);
     var songId = await ncmResolveSongId(route, config, profile);
-    var results = await Promise.all([ncmPlayback(songId, config), ncmResolvedLyricTrack(songId)]);
-    var resource = results[0], tracks = [results[1]];
+    var title = params.episodeName || params.title;
+    var results = await Promise.all([ncmPlayback(songId, config, title), ncmResolvedLyricTrack(songId, title)]);
+    var resource = results[0], tracks = results[1] ? [results[1]] : [];
     resource.subtitles = resource.externalSubtitles = resource.subtitleTracks = tracks;
     return [resource];
   });
@@ -930,14 +940,17 @@ async function loadSubtitle(params) {
     var config = ncmRead();
     var profile = route.kind === "heart" || route.kind === "queue" ? await ncmProfile(config) : null;
     var songId = await ncmResolveSongId(route, config, profile);
-    return [await ncmResolvedLyricTrack(songId)];
+    var track = await ncmResolvedLyricTrack(songId, params.episodeName || params.title);
+    return track ? [track] : [];
   } catch (_) {
     return [];
   }
 }
 
-async function ncmResolvedLyricTrack(songId) {
-  var track = ncmLyricTrack(songId);
+async function ncmResolvedLyricTrack(songId, title) {
+  var text = await ncmLyricText(songId, 4);
+  if (text === "") return null;
+  var track = ncmLyricTrack(songId, title);
   // Give each reload its own identity, including repeats of the same song.
   var refresh = Date.now();
   track.id += ":" + refresh;
@@ -950,7 +963,6 @@ async function ncmResolvedLyricTrack(songId) {
   track.default = true;
   track.selected = true;
 
-  var text = await ncmLyricText(songId, 4);
   if (text) {
     track.data = text;
     track.content = text;
@@ -974,8 +986,9 @@ async function ncmLyricText(songId, timeout) {
       }
       return text;
     }
+    return "";
   } catch (_) {}
-  return "";
+  return null;
 }
 
 function ncmMv(mv) {
