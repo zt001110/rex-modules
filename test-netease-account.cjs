@@ -40,7 +40,8 @@ async function request({ url, ...options }) {
       album: { ...album, id: albumWrongId ? 74 : 73 }, songs: albumIncomplete ? albumSongs.slice(0, 1) : albumSongs };
     else if (url.endsWith('/song/like/get')) body = { code: 200, ids: Array.from({ length: 105 }, (_, i) => i + 1) };
     else if (url.endsWith('/v3/song/detail')) body = { code: 200, songs: JSON.parse(q.c).filter(x => x.id !== missingSong).map(x => song(x.id)).reverse() };
-    else if (url.endsWith('/v6/playlist/detail')) body = { code: 200, playlist: playlistDetail };
+    else if (url.endsWith('/v6/playlist/detail')) body = { code: 200,
+      playlist: q.id === '43' ? { ...playlist, id: 43, specialType: 0, trackIds: [{ id: 33 }, { id: 22 }] } : playlistDetail };
     else if (url.endsWith('/v1/radio/get')) body = { code: 200, data: [song(333)] };
     else if (url.endsWith('/search/get')) body = { code: 200, result: { songs: [song(444)] } };
     else if (url.endsWith('/v1/discovery/recommend/resource')) body = { code: 200, recommend: [playlist] };
@@ -124,7 +125,7 @@ async function main() {
   expired = false;
   const lists = await context.loadMyPlaylists({ page: 2 });
   assert.equal(lists[0].link, 'ncm:playlist:42');
-  assert.equal(lists[0].mediaType, 'album');
+  assert.equal(lists[0].mediaType, 'genre');
   let sent = calls.find(c => c.url.endsWith('/user/playlist'));
   assert.equal(sent.options.params.uid, 88);
   assert.equal(sent.options.params.offset, 30);
@@ -449,20 +450,29 @@ async function main() {
   assert.deepEqual(Array.from(arranged, item => item.link),
     ['ncm:playlist:42', 'ncm:heart', 'ncm:playlist:43', 'ncm:playlist:44']);
   assert.equal(arranged[1].title, '心动模式');
-  assert.deepEqual(Array.from(arranged, item => item.mediaType), ['genre', 'album', 'album', 'album']);
+  assert.ok(arranged.every(item => item.mediaType === 'genre'));
   assert.equal(calls.filter(c => c.url.endsWith('/playmode/intelligence/list')).length, beforeHeartRefresh + 1);
   const heartDetail = await context.loadDetail(arranged[1].link);
   assert.equal(heartDetail.id, heart.id);
   assert.equal(heartDetail.mediaType, 'album');
   assert.equal(heartDetail.tracks[0].mediaType, 'song');
   assert.match(heartDetail.tracks[0].externalSubtitles[0].url, /\.lrc$/);
+  for (const [card, expectedIds] of [[arranged[1], [heartBase, heartBase + 1]], [arranged[2], [33, 22]]]) {
+    const genreId = card.link;
+    const songs = await context.loadMusicGenres({ genreId, section: 'songs' });
+    assert.deepEqual(Array.from(songs.slice(0, 2), song => song.link), expectedIds.map(id => 'ncm:song:' + id));
+    assert.match(songs[1].externalSubtitles[0].url, new RegExp('/' + expectedIds[1] + '\\.lrc$'));
+    assert.equal((await context.loadMusicGenres({ genreId, section: 'albums' }))[0].link, 'ncm:album:73');
+    assert.equal((await context.loadMusicGenres({ genreId, section: 'artists' }))[0].id, '91');
+  }
+  assert.equal(calls.filter(c => c.url.endsWith('/playmode/intelligence/list')).length, beforeHeartRefresh + 1);
   assert.equal((await context.loadMyPlaylists({ page: 2 })).some(item => item.link === 'ncm:heart'), false);
   emptyHeart = true;
   assert.equal((await context.loadMyPlaylists({}))[1].link, 'ncm:heart');
   storage.delete('ncm.heart.current.v1');
   const heartPlaceholder = (await context.loadMyPlaylists({}))[1];
   assert.equal(heartPlaceholder.description, '根据我喜欢的音乐推荐');
-  assert.equal(heartPlaceholder.mediaType, 'album');
+  assert.equal(heartPlaceholder.mediaType, 'genre');
   emptyHeart = false;
   userPlaylists = [{ ...playlist, creator: { userId: 99 } }];
   await assert.rejects(context.loadLikedSongs({}), /未找到此账号/);

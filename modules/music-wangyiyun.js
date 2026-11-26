@@ -2,7 +2,7 @@ var WidgetMetadata = {
   id: "mlitm.netease.account",
   title: "网易云音乐 · 我的音乐",
   iconurl: "https://raw.githubusercontent.com/zt001110/rex-icons/main/logos/official-ios/%E7%BD%91%E6%98%93%E4%BA%91%E9%9F%B3%E4%B9%90.png",
-  version: "1.2.25",
+  version: "1.2.26",
   requiredVersion: "0.0.7",
   contentType: "music",
   description: "账号歌单、收藏专辑、每日推荐、推荐歌单、心动模式与热歌榜，按账号权限在线播放，支持同步歌词。",
@@ -24,7 +24,7 @@ var WidgetMetadata = {
     { id: "likedSongs", title: "我喜欢的音乐 · 歌曲", functionName: "loadLikedSongs", cacheDuration: 0, params: [
       { name: "page", title: "页码", type: "page" }
     ] },
-    { id: "musicGenres", title: "我喜欢的音乐 · 浏览", type: "video", functionName: "loadMusicGenres", cacheDuration: 0, params: [
+    { id: "musicGenres", title: "我的歌单 · 浏览", type: "video", functionName: "loadMusicGenres", cacheDuration: 0, params: [
       { name: "genreId", title: "音乐目录 ID", type: "input" },
       { name: "section", title: "分区", type: "enumeration", enumOptions: [
         { title: "歌曲", value: "songs" }, { title: "专辑", value: "albums" }, { title: "歌手", value: "artists" }
@@ -510,23 +510,22 @@ async function loadMyPlaylists(params) {
     var config = ncmConfig(params), profile = await ncmProfile(config), page = ncmPage(params);
     var data = await ncmApi("/user/playlist", { uid: profile.userId, limit: 30, offset: (page - 1) * 30, includeVideo: false }, config);
     var lists = (data.playlist || []).filter(function (p) { return ncmId(p.id); });
-    var items = lists.map(function (p) { return ncmPlaylist(p); });
+    var items = lists.map(function (p) { return Object.assign(ncmPlaylist(p), { mediaType: "genre" }); });
     if (page !== 1) return items;
     var likedIndex = lists.findIndex(function (p) {
       return ncmIsAccountLikedPlaylist(p, profile.userId);
     });
     if (likedIndex < 0) return items;
     var liked = items.splice(likedIndex, 1)[0], heart;
-    liked.mediaType = "genre";
     try { heart = (await ncmGenerateHeart({ playlistId: String(lists[likedIndex].id) }, config, profile))[0]; } catch (_) {
       // A recommendation failure must not hide the user's playlists.
       var current = ncmStoredObject(NCM_HEART_CURRENT);
       heart = current.userId === String(profile.userId) && Array.isArray(current.ids) && current.ids.length ?
-        ncmQueueItem(current) : { id: "ncm:heart", link: "ncm:heart", type: "url", mediaType: "album",
+        ncmQueueItem(current) : { id: "ncm:heart", link: "ncm:heart", type: "url",
           title: "心动模式", coverUrl: liked.coverUrl, posterPath: liked.posterPath, backdropPath: liked.backdropPath,
           description: "根据我喜欢的音乐推荐" };
     }
-    items.unshift(liked, heart);
+    items.unshift(liked, Object.assign(heart, { mediaType: "genre" }));
     return items;
   });
 }
@@ -562,20 +561,20 @@ async function ncmBrowseCredits(ids, section, offset, config) {
 
 async function loadMusicGenres(params) {
   params = params || {};
-  var route = params.genreId ? ncmLink(params.genreId) : null;
-  if (params.genreId && (!route || route.kind !== "playlist" || route.offset ||
-      ["songs", "albums", "artists"].indexOf(params.section) < 0)) return [];
+  if (!params.genreId) return loadMyPlaylists(params);
+  var route = ncmLink(params.genreId);
+  if (!route || (route.kind !== "playlist" && route.kind !== "heart") || route.offset || route.episode ||
+      ["songs", "albums", "artists"].indexOf(params.section) < 0) return [];
   return ncmGuard(async function () {
     var config = ncmConfig(params), profile = await ncmProfile(config);
-    var offset = ncmBrowseOffset(params);
-    if (!route) {
-      if (offset) return [];
-      var liked = await ncmLikedPlaylist(config, profile);
-      return liked ? [Object.assign(ncmPlaylist(liked), { mediaType: "genre" })] : [];
+    var offset = ncmBrowseOffset(params), ids;
+    if (route.kind === "heart") {
+      ids = (await ncmCurrentHeart(config, profile)).ids;
+    } else {
+      var list = await ncmPlaylistData(route.id, config);
+      if (Number(list.specialType) === 5 && !ncmIsAccountLikedPlaylist(list, profile.userId)) return [];
+      ids = ncmPlaylistSongIds(list);
     }
-    var list = await ncmPlaylistData(route.id, config);
-    if (!ncmIsAccountLikedPlaylist(list, profile.userId)) return [];
-    var ids = ncmPlaylistSongIds(list);
     if (params.section === "songs") {
       var songs = await ncmSongs(ids.slice(offset, offset + NCM_BROWSE_PAGE), config);
       return ncmNativeTracks(songs, config, offset === 0);
