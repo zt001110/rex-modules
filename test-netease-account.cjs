@@ -62,7 +62,7 @@ async function main() {
   assert.equal(context.WidgetMetadata.id, 'mlitm.netease.account');
   assert.equal(context.WidgetMetadata.contentType, 'music');
   assert.deepEqual(Array.from(context.WidgetMetadata.modules.filter(m => !m.type), m => m.id),
-    ['playlists', 'albums', 'recommended', 'daily', 'hot', 'mvTop', 'mvLibrary', 'mvLatest', 'account']);
+    ['playlists', 'likedSongs', 'albums', 'recommended', 'daily', 'hot', 'mvTop', 'mvLibrary', 'mvLatest', 'account']);
   for (const fn of ['loadMvTop', 'loadMvLibrary', 'loadMvLatest']) {
     assert.equal((await context[fn]({ page: 2 }))[0].link, 'ncm:mv:777');
   }
@@ -162,6 +162,12 @@ async function main() {
   assert.equal(liked[0].link, 'ncm:song:101');
   assert.equal(liked[0].coverUrl, 'https://p1.music.126.net/test.jpg');
   assert.equal(liked[0].poster_path, undefined);
+  const likedNative = await context.loadLikedSongs({ page: 3 });
+  assert.deepEqual(Array.from(likedNative, item => [item.link, item.mediaType, item.episode]),
+    [201, 202, 203, 204, 205].map(id => ['ncm:song:' + id, 'song', undefined]));
+  assert.match(likedNative[0].videoUrl, /audio-201\.mp3/);
+  assert.match(likedNative[0].externalSubtitles[0].url, /\/201\.lrc$/);
+  assert.equal((await context.loadLikedSongs({ page: 4 })).length, 0);
   assert.equal((await context.loadPersonalFM({}))[0].link, 'ncm:song:333');
   assert.equal((await context.search({ keyword: 'Test', page: 2 }))[0].link, 'ncm:song:444');
   sent = calls.find(c => c.url.endsWith('/search/get'));
@@ -425,6 +431,7 @@ async function main() {
   assert.equal((await context.loadMyPlaylists({}))[1].description, '根据我喜欢的音乐推荐');
   emptyHeart = false;
   userPlaylists = [{ ...playlist, creator: { userId: 99 } }];
+  await assert.rejects(context.loadLikedSongs({}), /未找到此账号/);
   const beforeForeign = calls.filter(c => c.url.endsWith('/playmode/intelligence/list')).length;
   assert.equal((await context.loadMyPlaylists({})).some(item => item.link === 'ncm:heart'), false);
   assert.equal(calls.filter(c => c.url.endsWith('/playmode/intelligence/list')).length, beforeForeign);

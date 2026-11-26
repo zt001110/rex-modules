@@ -2,7 +2,7 @@ var WidgetMetadata = {
   id: "mlitm.netease.account",
   title: "网易云音乐 · 我的音乐",
   iconurl: "https://raw.githubusercontent.com/zt001110/rex-icons/main/logos/official-ios/%E7%BD%91%E6%98%93%E4%BA%91%E9%9F%B3%E4%B9%90.png",
-  version: "1.2.22",
+  version: "1.2.23",
   requiredVersion: "0.0.7",
   contentType: "music",
   description: "账号歌单、收藏专辑、每日推荐、推荐歌单、心动模式与热歌榜，按账号权限在线播放，支持同步歌词。",
@@ -19,6 +19,9 @@ var WidgetMetadata = {
   ],
   modules: [
     { id: "playlists", title: "我的歌单", functionName: "loadMyPlaylists", cacheDuration: 0, params: [
+      { name: "page", title: "页码", type: "page" }
+    ] },
+    { id: "likedSongs", title: "我喜欢的音乐 · 歌曲", functionName: "loadLikedSongs", cacheDuration: 0, params: [
       { name: "page", title: "页码", type: "page" }
     ] },
     { id: "albums", title: "我的专辑", functionName: "loadMyAlbums", cacheDuration: 0, params: [
@@ -185,6 +188,12 @@ function ncmPlaylist(list, offset) {
     description: list.description || [list.creator && list.creator.nickname, Number(list.trackCount || 0) + " 首"].filter(Boolean).join(" · ")
   };
 }
+
+function ncmIsAccountLikedPlaylist(list, userId) {
+  return list && ncmId(list.id) && Number(list.specialType) === 5 &&
+    String((list.creator || {}).userId) === String(userId);
+}
+
 async function ncmSongs(ids, config) {
   if (!ids.length) return [];
   var data = await ncmApi("/v3/song/detail", {
@@ -373,10 +382,10 @@ async function ncmGenerateHeart(p, config, profile) {
     if (songId && !ncmId(songId)) ncmFail("种子歌曲 ID 无效");
     if (!playlistId) {
       var lists = await ncmApi("/user/playlist", { uid: profile.userId, limit: 100, offset: 0 }, config);
-      var liked = (lists.playlist || []).filter(function (list) {
-        return Number(list.specialType) === 5 && String((list.creator || {}).userId) === String(profile.userId);
-      })[0];
-      if (!liked || !ncmId(liked.id)) ncmFail("未找到我喜欢的音乐，请填写种子歌单 ID");
+      var liked = (lists.playlist || []).find(function (list) {
+        return ncmIsAccountLikedPlaylist(list, profile.userId);
+      });
+      if (!liked) ncmFail("未找到我喜欢的音乐，请填写种子歌单 ID");
       playlistId = String(liked.id);
     }
     var detail = await ncmApi("/v6/playlist/detail", { id: playlistId, n: 1 }, config);
@@ -469,7 +478,7 @@ async function loadMyPlaylists(params) {
     var items = lists.map(function (p) { return ncmPlaylist(p); });
     if (page !== 1) return items;
     var likedIndex = lists.findIndex(function (p) {
-      return Number(p.specialType) === 5 && String((p.creator || {}).userId) === String(profile.userId);
+      return ncmIsAccountLikedPlaylist(p, profile.userId);
     });
     if (likedIndex < 0) return items;
     var liked = items.splice(likedIndex, 1)[0], heart;
@@ -483,6 +492,22 @@ async function loadMyPlaylists(params) {
     }
     items.unshift(liked, heart);
     return items;
+  });
+}
+
+async function loadLikedSongs(params) {
+  return ncmGuard(async function () {
+    var config = ncmConfig(params), profile = await ncmProfile(config);
+    var data = await ncmApi("/user/playlist", { uid: profile.userId, limit: 100, offset: 0, includeVideo: false }, config);
+    var liked = (data.playlist || []).find(function (list) {
+      return ncmIsAccountLikedPlaylist(list, profile.userId);
+    });
+    if (!liked) ncmFail("未找到此账号的我喜欢的音乐歌单");
+    var list = await ncmPlaylistData(String(liked.id), config);
+    var offset = (ncmPage(params) - 1) * NCM_PAGE;
+    var ids = ncmPlaylistSongIds(list).slice(offset, offset + NCM_PAGE);
+    var songs = await ncmSongs(ids, config);
+    return ncmNativeTracks(songs, config, true);
   });
 }
 
