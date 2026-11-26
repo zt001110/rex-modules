@@ -121,6 +121,7 @@ async function main() {
   expired = false;
   const lists = await context.loadMyPlaylists({ page: 2 });
   assert.equal(lists[0].link, 'ncm:playlist:42');
+  assert.equal(lists[0].mediaType, 'album');
   let sent = calls.find(c => c.url.endsWith('/user/playlist'));
   assert.equal(sent.options.params.uid, 88);
   assert.equal(sent.options.params.offset, 30);
@@ -141,7 +142,7 @@ async function main() {
   assert.ok(detail.episodeItems[0].externalSubtitles[0].url.endsWith('/netease/1.lrc'));
   assert.ok(detail.episodeItems[1].externalSubtitles[0].url.endsWith('/netease/2.lrc'));
   assert.ok(detail.episodeItems[99].externalSubtitles[0].url.endsWith('/netease/100.lrc'));
-  assert.equal(detail.mediaType, 'playlist');
+  assert.equal(detail.mediaType, 'album');
   assert.equal(detail.tracks.length, 205);
   assert.match(detail.tracks[204].videoUrl, /audio-205\.mp3/);
   assert.match(detail.tracks[204].externalSubtitles[0].url, /\/205\.lrc$/);
@@ -247,6 +248,7 @@ async function main() {
   const heart = (await context.loadHeart({}))[0];
   assert.equal(heart.id, 'ncm:heart');
   assert.equal(heart.link, 'ncm:heart');
+  assert.equal(heart.mediaType, 'album');
   assert.equal(storage.has('ncm.heart.daily.v1'), false);
   assert.equal((await context.loadDetail('ncm:queue:legacy-recent')).id, heart.id);
   const savedHeartEpisode = (await context.loadDetail('ncm:queue:legacy-cached:100')).episodeItems[0];
@@ -381,7 +383,7 @@ async function main() {
   playlistDetail = { ...playlist, trackIds: [null, { id: 11 }, { id: 22 }, { id: 33 }], trackCount: 3 };
   missingSong = '22';
   const sparseDetail = await context.loadDetail('ncm:playlist:42');
-  assert.equal(sparseDetail.mediaType, 'playlist');
+  assert.equal(sparseDetail.mediaType, 'album');
   assert.deepEqual(Array.from(sparseDetail.tracks, track => [track.mediaType, track.link, track.episode, track.externalSubtitles[0].url]),
     [['11', 1], ['33', 3]].map(([id, episode]) =>
       ['song', 'ncm:song:' + id, episode, 'https://rex-netease-lyrics.mlitm.workers.dev/netease/' + id + '.lrc']));
@@ -422,13 +424,20 @@ async function main() {
   assert.deepEqual(Array.from(arranged, item => item.link),
     ['ncm:playlist:42', 'ncm:heart', 'ncm:playlist:43', 'ncm:playlist:44']);
   assert.equal(arranged[1].title, '心动模式');
+  assert.ok(arranged.every(item => item.mediaType === 'album'));
   assert.equal(calls.filter(c => c.url.endsWith('/playmode/intelligence/list')).length, beforeHeartRefresh + 1);
-  assert.equal((await context.loadDetail(arranged[1].link)).id, heart.id);
+  const heartDetail = await context.loadDetail(arranged[1].link);
+  assert.equal(heartDetail.id, heart.id);
+  assert.equal(heartDetail.mediaType, 'album');
+  assert.equal(heartDetail.tracks[0].mediaType, 'song');
+  assert.match(heartDetail.tracks[0].externalSubtitles[0].url, /\.lrc$/);
   assert.equal((await context.loadMyPlaylists({ page: 2 })).some(item => item.link === 'ncm:heart'), false);
   emptyHeart = true;
   assert.equal((await context.loadMyPlaylists({}))[1].link, 'ncm:heart');
   storage.delete('ncm.heart.current.v1');
-  assert.equal((await context.loadMyPlaylists({}))[1].description, '根据我喜欢的音乐推荐');
+  const heartPlaceholder = (await context.loadMyPlaylists({}))[1];
+  assert.equal(heartPlaceholder.description, '根据我喜欢的音乐推荐');
+  assert.equal(heartPlaceholder.mediaType, 'album');
   emptyHeart = false;
   userPlaylists = [{ ...playlist, creator: { userId: 99 } }];
   await assert.rejects(context.loadLikedSongs({}), /未找到此账号/);

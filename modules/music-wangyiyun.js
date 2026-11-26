@@ -2,7 +2,7 @@ var WidgetMetadata = {
   id: "mlitm.netease.account",
   title: "网易云音乐 · 我的音乐",
   iconurl: "https://raw.githubusercontent.com/zt001110/rex-icons/main/logos/official-ios/%E7%BD%91%E6%98%93%E4%BA%91%E9%9F%B3%E4%B9%90.png",
-  version: "1.2.23",
+  version: "1.2.24",
   requiredVersion: "0.0.7",
   contentType: "music",
   description: "账号歌单、收藏专辑、每日推荐、推荐歌单、心动模式与热歌榜，按账号权限在线播放，支持同步歌词。",
@@ -183,7 +183,8 @@ function ncmPlaylist(list, offset) {
   var key = "ncm:playlist:" + list.id + (offset ? ":" + offset : "");
   var cover = ncmCover(list.coverImgUrl || list.picUrl);
   return {
-    id: key, link: key, type: "url", mediaType: "playlist", title: list.name || "歌单 " + list.id,
+    // Rex opens the native track browser for album items.
+    id: key, link: key, type: "url", mediaType: "album", title: list.name || "歌单 " + list.id,
     coverUrl: cover, posterPath: cover, backdropPath: cover,
     description: list.description || [list.creator && list.creator.nickname, Number(list.trackCount || 0) + " 首"].filter(Boolean).join(" · ")
   };
@@ -231,8 +232,9 @@ function ncmReadQueues() {
 }
 
 function ncmQueueItem(queue, offset) {
-  var link = queue.kind === "heart" ? "ncm:heart" : "ncm:queue:" + queue.id + (offset ? ":" + offset : "");
-  return { id: link, link: link, type: "url", mediaType: "playlist", title: queue.title,
+  var isHeart = queue.kind === "heart";
+  var link = isHeart ? "ncm:heart" : "ncm:queue:" + queue.id + (offset ? ":" + offset : "");
+  return { id: link, link: link, type: "url", mediaType: isHeart ? "album" : "playlist", title: queue.title,
     coverUrl: queue.cover, posterPath: queue.cover, backdropPath: queue.cover,
     description: queue.ids.length + " 首" };
 }
@@ -486,7 +488,7 @@ async function loadMyPlaylists(params) {
       // A recommendation failure must not hide the user's playlists.
       var current = ncmStoredObject(NCM_HEART_CURRENT);
       heart = current.userId === String(profile.userId) && Array.isArray(current.ids) && current.ids.length ?
-        ncmQueueItem(current) : { id: "ncm:heart", link: "ncm:heart", type: "url", mediaType: "tv",
+        ncmQueueItem(current) : { id: "ncm:heart", link: "ncm:heart", type: "url", mediaType: "album",
           title: "心动模式", coverUrl: liked.coverUrl, posterPath: liked.posterPath, backdropPath: liked.backdropPath,
           description: "根据我喜欢的音乐推荐" };
     }
