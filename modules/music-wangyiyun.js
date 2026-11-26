@@ -2,7 +2,7 @@ var WidgetMetadata = {
   id: "mlitm.netease.account",
   title: "网易云音乐 · 我的音乐",
   iconurl: "https://raw.githubusercontent.com/zt001110/rex-icons/main/logos/official-ios/%E7%BD%91%E6%98%93%E4%BA%91%E9%9F%B3%E4%B9%90.png",
-  version: "1.2.27",
+  version: "1.2.28",
   requiredVersion: "0.0.7",
   contentType: "music",
   description: "账号歌单、收藏专辑、每日推荐、推荐歌单、心动模式与热歌榜，按账号权限在线播放，支持同步歌词。",
@@ -578,10 +578,12 @@ async function loadMusicGenres(params) {
     if (params.section === "songs") {
       var songs = await ncmSongs(ids.slice(offset, offset + NCM_BROWSE_PAGE), config);
       // A direct videoUrl skips loadResource when Rex advances the music queue.
-      return songs.map(function (song) {
-        song.externalSubtitles = [ncmLyricTrack(ncmLink(song.link).id)];
+      return Promise.all(songs.map(async function (song) {
+        var songId = ncmLink(song.link).id;
+        var text = await ncmLyricText(songId, 1);
+        song.externalSubtitles = [ncmInlineLyricTrack(songId, text)];
         return song;
-      });
+      }));
     }
     var credits = await ncmBrowseCredits(ids, params.section, offset, config);
     if (params.section === "albums") return credits.map(function (album) { return ncmAlbum(album); });
@@ -799,7 +801,9 @@ async function loadDetail(link) {
     if (route.kind === "queue") return ncmQueueDetail(route, config, profile);
     var items = await ncmSongs([route.id], config);
     if (!items.length) ncmFail("网易云未返回这首歌曲的信息");
-    ncmAttachPlayback(items[0], await ncmPlayback(route.id, config));
+    var playback = await Promise.all([ncmPlayback(route.id, config), ncmLyricText(route.id, 1)]);
+    playback[0].subtitles = [ncmInlineLyricTrack(route.id, playback[1])];
+    ncmAttachPlayback(items[0], playback[0]);
     return items[0];
   });
 }
@@ -857,6 +861,25 @@ function ncmLyricTrack(id) {
     fileName: "netease-" + id + ".lrc",
     headers: {}, isDefault: true
   };
+}
+
+function ncmInlineLyricTrack(id, text) {
+  var track = ncmLyricTrack(id);
+  if (!text) return track;
+  // JavaScriptCore widget runtimes do not require browser globals such as btoa.
+  var bytes = encodeURIComponent(text).replace(/%([0-9A-F]{2})/g, function (_, hex) {
+    return String.fromCharCode(parseInt(hex, 16));
+  });
+  var alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+  var base64 = "";
+  for (var i = 0; i < bytes.length; i += 3) {
+    var a = bytes.charCodeAt(i), b = bytes.charCodeAt(i + 1) || 0, c = bytes.charCodeAt(i + 2) || 0;
+    base64 += alphabet[a >> 2] + alphabet[((a & 3) << 4) | (b >> 4)] +
+      (i + 1 < bytes.length ? alphabet[((b & 15) << 2) | (c >> 6)] : "=") +
+      (i + 2 < bytes.length ? alphabet[c & 63] : "=");
+  }
+  track.url = "data:text/plain;charset=utf-8;base64," + base64;
+  return track;
 }
 
 function ncmPlaybackRoute(params) {

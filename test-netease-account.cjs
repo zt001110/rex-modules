@@ -47,7 +47,9 @@ async function request({ url, ...options }) {
     else if (url.endsWith('/v1/discovery/recommend/resource')) body = { code: 200, recommend: [playlist] };
     else if (url.endsWith('/v3/discovery/recommend/songs')) body = { code: 200, data: { dailySongs: [song(10), song(20), song(30), song(10)] } };
     else if (url.endsWith('/playmode/intelligence/list')) body = { code: 200, data: emptyHeart ? [] : Array.from({ length: 145 }, (_, i) => ({ songInfo: song(heartBase + i) })) };
-    else if (url.endsWith('/song/lyric')) body = { code: 200, lrc: { lyric: '[00:01.00]first line\n[00:04.50]second line' } };
+    else if (url.endsWith('/song/lyric')) body = { code: 200, lrc: {
+      lyric: q.id === '21' ? '[00:01.00]中文歌词' : q.id === '22' ? '' : '[00:01.00]first line\n[00:04.50]second line'
+    } };
     else if (url.endsWith('/toplist')) body = { code: 200, list: [{ ...playlist, name: '云音乐热歌榜' }, { ...playlist, name: '飙升榜' }] };
     else if (url.endsWith('/song/enhance/player/url/v1')) body = { code: 200, data: JSON.parse(q.ids).map(id => ({
       id: wrongId ? 999 : id, url: denied ? null : 'http://m7.music.126.net/audio-' + id + '.mp3?signature=fixture',
@@ -182,10 +184,13 @@ async function main() {
     Array.from({ length: 20 }, (_, i) => 'ncm:song:' + (21 + i)));
   assert.equal(browseSongs[0].subtitle, 'Artist');
   assert.equal(browseSongs[0].videoUrl, undefined);
-  assert.match(browseSongs[0].externalSubtitles[0].url, /\/21\.lrc$/);
-  const [nextBrowseResource] = await context.loadResource({ link: browseSongs[1].link });
-  assert.match(nextBrowseResource.url, /audio-22\.mp3/);
-  assert.match(nextBrowseResource.subtitles[0].url, /\/22\/\d+\.lrc$/);
+  const inlineUrl = browseSongs[0].externalSubtitles[0].url;
+  assert.match(inlineUrl, /^data:text\/plain;charset=utf-8;base64,/);
+  assert.equal(Buffer.from(inlineUrl.split(',')[1], 'base64').toString('utf8'), '[00:01.00]中文歌词');
+  assert.match(browseSongs[1].externalSubtitles[0].url, /\/22\.lrc$/);
+  const [nextBrowseResource] = await context.loadResource({ link: browseSongs[2].link });
+  assert.match(nextBrowseResource.url, /audio-23\.mp3/);
+  assert.match(nextBrowseResource.subtitles[0].url, /\/23\/\d+\.lrc$/);
   assert.match(nextBrowseResource.subtitles[0].content, /^\[00:01\.00\]/);
   assert.equal((await context.loadMusicGenres({ ...browse, section: 'songs', offset: 205 })).length, 0);
   assert.deepEqual(Array.from(await context.loadMusicGenres({ ...browse, section: 'albums' }), item => item.link), ['ncm:album:73']);
@@ -206,7 +211,7 @@ async function main() {
   assert.equal(sent.options.params.offset, 30);
   const beforeDetail = calls.filter(c => c.url.endsWith('/song/enhance/player/url/v1')).length;
   const songDetail = await context.loadDetail('ncm:song:101');
-  assert.ok(songDetail.externalSubtitles[0].url.endsWith('/netease/101.lrc'));
+  assert.match(songDetail.externalSubtitles[0].url, /^data:text\/plain;charset=utf-8;base64,/);
   assert.equal(songDetail.videoUrl, undefined);
   assert.equal(songDetail.externalSubtitles[0].isDefault, true);
   assert.equal(Object.keys(songDetail.externalSubtitles[0].headers).length, 0);
@@ -466,7 +471,7 @@ async function main() {
     const genreId = card.link;
     const songs = await context.loadMusicGenres({ genreId, section: 'songs' });
     assert.deepEqual(Array.from(songs.slice(0, 2), song => song.link), expectedIds.map(id => 'ncm:song:' + id));
-    assert.match(songs[1].externalSubtitles[0].url, new RegExp('/' + expectedIds[1] + '\\.lrc$'));
+    assert.equal(songs[1].externalSubtitles[0].id, 'ncm:lyrics:' + expectedIds[1]);
     assert.equal((await context.loadMusicGenres({ genreId, section: 'albums' }))[0].link, 'ncm:album:73');
     assert.equal((await context.loadMusicGenres({ genreId, section: 'artists' }))[0].id, '91');
   }
