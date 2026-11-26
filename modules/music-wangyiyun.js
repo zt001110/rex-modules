@@ -2,7 +2,7 @@ var WidgetMetadata = {
   id: "mlitm.netease.account",
   title: "网易云音乐 · 我的音乐",
   iconurl: "https://raw.githubusercontent.com/zt001110/rex-icons/main/logos/official-ios/%E7%BD%91%E6%98%93%E4%BA%91%E9%9F%B3%E4%B9%90.png",
-  version: "1.2.30",
+  version: "1.2.31",
   requiredVersion: "0.0.7",
   contentType: "music",
   description: "账号歌单、收藏专辑、每日推荐、推荐歌单、心动模式与热歌榜，按账号权限在线播放，支持同步歌词。",
@@ -978,7 +978,7 @@ async function ncmLyricText(songId, timeout) {
   var cached = ncmStoredObject(key);
   if (cached.id === songId && cached.expires > Date.now()) return cached.text;
   try {
-    var data = await ncmApi("/song/lyric", { id: songId, lv: 1 }, {}, timeout);
+    var data = await ncmApi("/song/lyric", { id: songId, lv: -1 }, {}, timeout);
     var text = data.lrc && data.lrc.lyric;
     if (typeof text === "string" && /^\[\d{1,4}:[0-5]?\d(?:[.:]\d{1,3})?\]/m.test(text)) {
       if (text.length <= 20000) {

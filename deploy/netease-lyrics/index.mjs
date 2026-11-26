@@ -50,10 +50,11 @@ export default {
     if (path === "/health") return reply('{"ok":true}', 200, "application/json");
     const match = /^\/netease\/([1-9]\d{0,18})(?:\/\d{1,16})?\.(srt|lrc)$/.exec(path);
     if (!match) return reply("Not found", 404);
+    let sawEmptyLyrics = false;
     try {
       const signal = AbortSignal.timeout(4500);
-      const data = await Promise.any(["interface.music.163.com", "interface3.music.163.com", "music.163.com"].map(async host => {
-        const upstream = await fetch(`https://${host}/api/song/lyric?id=${match[1]}&lv=1`, {
+      const { lrc, srt } = await Promise.any(["interface.music.163.com", "interface3.music.163.com", "music.163.com"].map(async host => {
+        const upstream = await fetch(`https://${host}/api/song/lyric?id=${match[1]}&lv=-1`, {
           headers: { Referer: NCM + "/", "User-Agent": "Mozilla/5.0" },
           redirect: "follow",
           signal,
@@ -61,15 +62,19 @@ export default {
         if (!upstream.ok) throw new Error(`HTTP ${upstream.status}`);
         const json = await upstream.json();
         if (json?.code !== 200) throw new Error(`NCM code ${Number(json?.code)}`);
-        return json;
+        const lrc = json.lrc?.lyric;
+        const srt = !json.nolyric && !json.uncollected && typeof lrc === "string" && lrc.length <= 200000
+          ? lrcToSrt(lrc) : "";
+        if (!srt) {
+          sawEmptyLyrics = true;
+          throw new Error("No timed lyrics");
+        }
+        return { lrc, srt };
       }));
-      const lrc = data.lrc?.lyric;
-      const srt = !data.nolyric && !data.uncollected && typeof lrc === "string" && lrc.length <= 200000
-        ? lrcToSrt(lrc) : "";
-      if (!srt) return reply("No timed lyrics", 404, "text/plain", "public, max-age=300");
       if (match[2] === "lrc") return reply(lrc, 200, "text/plain", "public, max-age=3600");
       return reply(srt, 200, "application/x-subrip", "public, max-age=3600");
     } catch (error) {
+      if (sawEmptyLyrics) return reply("No timed lyrics", 404, "text/plain", "public, max-age=300");
       console.warn("NetEase lyric upstream:", (error.errors || [error]).map(e => e.message).join("; "));
       return reply("Lyrics source unavailable (" + (error.errors || [error]).map(e => /^(HTTP|NCM code) \d+$/.test(e.message) ? e.message : e.name).join(", ") + ")", 502);
     }

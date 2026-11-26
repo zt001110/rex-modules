@@ -331,6 +331,7 @@ async function main() {
   assert.match(nextLyric.content, /^\[00:01\.00\]/);
   assert.equal(nextLyric.data, nextLyric.content);
   const lyricLookup = calls.find(c => c.url.endsWith('/song/lyric') && c.options.params.id === '701').options;
+  assert.equal(lyricLookup.params.lv, -1);
   assert.equal(lyricLookup.headers.Cookie, undefined);
   assert.equal(lyricLookup.timeout, 1);
   await context.loadSubtitle({ link: 'ncm:song:98765' });
